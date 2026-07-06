@@ -27,7 +27,7 @@
 
 前往 GitHub Releases 下载最新版本：
 
-[下载 CineFlow 最新版](https://github.com/incldue/CineFlow/releases/latest)
+[下载 CineFlow 最新版](https://github.com/incldue/CineFlow/releases)
 
 当前正式版：
 
