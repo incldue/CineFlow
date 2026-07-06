@@ -1,0 +1,75 @@
+{
+  "name": "cineflow",
+  "productName": "CineFlow",
+  "version": "1.0.0",
+  "description": "A smooth desktop movie recommendation app powered by TMDB.",
+  "author": "debu8ger",
+  "main": "electron/main.cjs",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/start-dev.cjs",
+    "start": "node scripts/start-dev.cjs",
+    "build": "vite build",
+    "build:win": "npm run build && electron-builder --win nsis",
+    "build:win:dir": "npm run build && electron-builder --win dir",
+    "pack:portable": "npm run build && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.debu8ger.cineflow",
+    "productName": "CineFlow",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "!**/.env",
+      "!**/.env.*",
+      "!**/node_modules/.cache/**/*"
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CineFlow",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "CineFlow-${version}-Setup.${ext}"
+    }
+  },
+  "dependencies": {
+    "dashjs": "^5.2.0",
+    "flv.js": "^1.6.2",
+    "hls.js": "^1.6.16"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "vite": "^6.0.7"
+  },
+  "homepage": "https://github.com/debu8ger/CineFlow#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/debu8ger/CineFlow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/debu8ger/CineFlow/issues"
+  },
+  "license": "MIT"
+}
