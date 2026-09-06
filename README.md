@@ -29,13 +29,6 @@
 
 [下载 CineFlow 最新版](https://github.com/incldue/CineFlow/releases)
 
-当前正式版：
-
-```text
-CineFlow-1.0.0-Setup.exe
-CineFlow-1.0.0-win-x64-portable.zip
-```
-
 支持环境：
 
 - Windows 10 / Windows 11
