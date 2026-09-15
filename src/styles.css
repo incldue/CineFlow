@@ -1344,12 +1344,43 @@ body.island-expanded-mode .movie-card p {
 
 .settings-card {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   width: min(620px, calc(100vw - 48px));
+  max-height: calc(100vh - 56px);
   padding: 28px;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 28px;
   background: rgba(15, 17, 30, 0.94);
   box-shadow: var(--shadow);
+}
+
+.settings-scroll {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  padding-right: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--accent-rgb), 0.22) rgba(255, 255, 255, 0.04);
+}
+
+.settings-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+.settings-scroll::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.34), rgba(210, 220, 255, 0.18));
 }
 
 .settings-card .panel-close {
@@ -7576,4 +7607,796 @@ body.island-docked-mode .player-modal {
 body.player-open .app-shell,
 body.player-open .detail-content {
   overscroll-behavior: contain;
+}
+
+/* CineFlow premium motion pass：统一高级动效曲线，优先 transform/opacity，避免网络波动或播放时抢主线程。 */
+:root {
+  --cf-motion-fast: 180ms;
+  --cf-motion-medium: 320ms;
+  --cf-motion-slow: 680ms;
+  --cf-motion-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --cf-motion-luxury: cubic-bezier(0.22, 1, 0.36, 1);
+  --cf-motion-exit: cubic-bezier(0.32, 0, 0.18, 1);
+  --cf-motion-glow: rgba(var(--accent-rgb), 0.16);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #app,
+  .app-shell,
+  .search-box,
+  .movie-card,
+  .style-chip,
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .resource-card,
+  .player-episode-button {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  #app {
+    transition:
+      transform var(--cf-motion-slow) var(--cf-motion-spring),
+      opacity var(--cf-motion-medium) ease;
+  }
+
+  body:not(.is-island-dragging) .search-box {
+    transition:
+      transform 420ms var(--cf-motion-spring),
+      border-color var(--cf-motion-medium) ease,
+      background-color var(--cf-motion-medium) ease,
+      box-shadow var(--cf-motion-medium) ease;
+  }
+
+  body:not(.is-island-dragging) .search-box:focus-within {
+    transform: translate3d(0, -1px, 0);
+  }
+
+  .movie-card,
+  .style-chip,
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .resource-card,
+  .player-episode-button {
+    transition:
+      transform 420ms var(--cf-motion-spring),
+      opacity var(--cf-motion-medium) ease,
+      border-color var(--cf-motion-medium) ease,
+      background-color var(--cf-motion-medium) ease;
+  }
+
+  .movie-card {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .movie-card:hover,
+  .movie-card:focus-visible {
+    transform: translate3d(0, -7px, 0) scale(1.012);
+  }
+
+  .movie-card:active,
+  .style-chip:active,
+  .primary-button:active,
+  .secondary-button:active,
+  .ghost-button:active,
+  .resource-card:active,
+  .player-episode-button:active {
+    transform: translate3d(0, -1px, 0) scale(0.992);
+    transition-duration: 110ms;
+  }
+
+  .movie-card::before,
+  .movie-card::after,
+  .resource-card::before,
+  .resource-card::after,
+  .player-shell::before,
+  .island-restore-button::after {
+    transition:
+      opacity 460ms var(--cf-motion-luxury),
+      transform 620ms var(--cf-motion-spring);
+  }
+
+  .movie-card:hover::before,
+  .movie-card:focus-visible::before {
+    transform: translate3d(0, 0, 0) scale(1.018);
+  }
+
+  .movie-card:hover::after,
+  .movie-card:focus-visible::after {
+    transform: translate3d(18%, -4%, 0) rotate(5deg);
+  }
+
+  .style-chip:hover,
+  .style-chip:focus-visible {
+    transform: translate3d(0, -3px, 0);
+  }
+
+  body.island-mode .island-restore-button,
+  body.island-expanded-mode .island-restore-button {
+    transition:
+      transform 360ms var(--cf-motion-spring),
+      border-color var(--cf-motion-medium) ease,
+      background-color var(--cf-motion-medium) ease,
+      box-shadow var(--cf-motion-medium) ease;
+  }
+
+  body.island-mode .island-restore-button:hover,
+  body.island-expanded-mode .island-restore-button:hover,
+  body.island-mode .island-restore-button:focus-visible,
+  body.island-expanded-mode .island-restore-button:focus-visible {
+    transform: translate3d(0, -1px, 0) scale(1.028);
+  }
+
+  .island-restore-button.is-restoring .restore-arrow {
+    animation: cfRestoreArrowFloat var(--cf-motion-slow) var(--cf-motion-spring) infinite alternate;
+  }
+
+  html.is-window-restoring #app,
+  body.is-window-restoring #app {
+    transition:
+      transform var(--cf-motion-slow) var(--cf-motion-spring),
+      opacity 360ms ease;
+  }
+
+  body.is-window-restoring .app-shell {
+    animation: cfWindowContentRecompose var(--cf-motion-slow) var(--cf-motion-spring) both;
+  }
+
+  .modal-backdrop:not(.is-hidden) .settings-card,
+  .close-choice-backdrop:not(.is-hidden) .close-choice-card {
+    animation: cfPremiumModalIn 420ms var(--cf-motion-spring) both;
+  }
+
+  .toast:not(.is-hidden) {
+    animation: cfToastRise 440ms var(--cf-motion-spring) both;
+  }
+
+  .player-modal {
+    transition: opacity 300ms var(--cf-motion-luxury);
+  }
+
+  .player-shell {
+    transform: translate3d(0, 20px, 0) scale(0.982);
+    transition:
+      transform 300ms var(--cf-motion-spring),
+      opacity 260ms ease;
+  }
+
+  .player-modal.is-open .player-shell {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  .player-modal.is-closing .player-shell {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.988);
+    transition:
+      transform 240ms var(--cf-motion-exit),
+      opacity 200ms ease;
+  }
+
+  .detail-panel {
+    --detail-fluid-ease: var(--cf-motion-spring);
+    --detail-fluid-close-ease: var(--cf-motion-exit);
+    transition: transform 760ms var(--detail-fluid-ease) !important;
+  }
+
+  .detail-panel.is-rippling-close {
+    transition: transform 620ms var(--detail-fluid-close-ease) !important;
+  }
+
+  .detail-panel::before,
+  .detail-panel::after,
+  .detail-panel .detail-content {
+    will-change: transform, opacity;
+  }
+
+  .detail-panel.is-rippling-open::before {
+    animation: cfDetailSurfaceIn 760ms var(--detail-fluid-ease) both;
+  }
+
+  .detail-panel.is-rippling-open::after {
+    animation: cfDetailCrestIn 760ms var(--detail-fluid-ease) both;
+  }
+
+  .detail-panel.is-rippling-open .detail-content {
+    animation: cfDetailContentIn 720ms var(--detail-fluid-ease) both;
+  }
+
+  .detail-panel.is-rippling-close::before {
+    animation: cfDetailSurfaceOut 620ms var(--detail-fluid-close-ease) both;
+  }
+
+  .detail-panel.is-rippling-close::after {
+    animation: cfDetailCrestOut 620ms var(--detail-fluid-close-ease) both;
+  }
+
+  .detail-panel.is-rippling-close .detail-content {
+    animation: cfDetailContentOut 560ms var(--detail-fluid-close-ease) both;
+  }
+}
+
+@keyframes cfWindowContentRecompose {
+  0% {
+    opacity: 0.72;
+    transform: translate3d(0, 8px, 0) scale(0.992);
+  }
+  58% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes cfRestoreArrowFloat {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(2px, -2px, 0);
+  }
+}
+
+@keyframes cfPremiumModalIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.972);
+  }
+  62% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes cfToastRise {
+  0% {
+    opacity: 0;
+    transform: translate3d(-50%, 12px, 0) scale(0.982);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0) scale(1);
+  }
+}
+
+@keyframes cfDetailSurfaceIn {
+  0% {
+    opacity: 0.72;
+    transform: translate3d(18px, 0, 0) scaleX(0.976);
+  }
+  46% {
+    opacity: 1;
+    transform: translate3d(4px, 0, 0) scaleX(1.004);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scaleX(1);
+  }
+}
+
+@keyframes cfDetailCrestIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(30px, 0, 0) scaleX(0.82);
+  }
+  16% {
+    opacity: 0.54;
+  }
+  58% {
+    opacity: 0.28;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--detail-wave-travel-neg, -920px), 0, 0) scaleX(1.14);
+  }
+}
+
+@keyframes cfDetailContentIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(18px, 0, 0) scale(0.996);
+  }
+  42% {
+    opacity: 0.78;
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes cfDetailSurfaceOut {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scaleX(1);
+  }
+  100% {
+    opacity: 0.70;
+    transform: translate3d(16px, 0, 0) scaleX(0.978);
+  }
+}
+
+@keyframes cfDetailCrestOut {
+  0% {
+    opacity: 0.42;
+    transform: translate3d(var(--detail-wave-travel-neg, -920px), 0, 0) scaleX(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(32px, 0, 0) scaleX(0.78);
+  }
+}
+
+@keyframes cfDetailContentOut {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(14px, 0, 0) scale(0.996);
+  }
+}
+
+/* CineFlow premium motion pass II：更高级的轻量玻璃流光，同时进一步减少长期合成层占用。 */
+@media (prefers-reduced-motion: no-preference) {
+  .movie-card,
+  .style-chip,
+  .resource-card,
+  .player-episode-button,
+  .player-shell,
+  .detail-panel::before,
+  .detail-panel::after,
+  .detail-panel .detail-content {
+    will-change: auto;
+  }
+
+  .movie-card:hover,
+  .movie-card:focus-visible,
+  .style-chip:hover,
+  .style-chip:focus-visible,
+  .resource-card:hover,
+  .resource-card:focus-within,
+  .player-episode-button:hover,
+  .player-episode-button:focus-visible,
+  .player-modal.is-open .player-shell,
+  .player-modal.is-closing .player-shell,
+  .detail-panel.is-rippling-open::before,
+  .detail-panel.is-rippling-open::after,
+  .detail-panel.is-rippling-open .detail-content,
+  .detail-panel.is-rippling-close::before,
+  .detail-panel.is-rippling-close::after,
+  .detail-panel.is-rippling-close .detail-content {
+    will-change: transform, opacity;
+  }
+
+  .search-box,
+  .movie-card,
+  .style-chip,
+  .resource-card,
+  .primary-button,
+  .secondary-button,
+  .player-episode-button {
+    isolation: isolate;
+    transform-style: preserve-3d;
+  }
+
+  .search-box,
+  .primary-button,
+  .secondary-button {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .search-box {
+    transition:
+      transform 440ms var(--cf-motion-spring),
+      border-color 260ms ease,
+      background-color 260ms ease;
+  }
+
+  .movie-card,
+  .style-chip,
+  .resource-card,
+  .player-episode-button {
+    transition:
+      transform 460ms var(--cf-motion-spring),
+      opacity 260ms ease,
+      border-color 260ms ease,
+      background-color 260ms ease;
+  }
+
+  .search-box::after,
+  .primary-button::after,
+  .secondary-button::after {
+    content: "";
+    position: absolute;
+    inset: -60% -70%;
+    z-index: 0;
+    opacity: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+      linear-gradient(112deg, transparent 0 42%, rgba(255, 255, 255, 0.20) 48%, rgba(var(--accent-rgb), 0.12) 52%, transparent 60%);
+    transform: translate3d(-22%, 0, 0) rotate(7deg);
+    transition:
+      opacity 360ms var(--cf-motion-luxury),
+      transform 620ms var(--cf-motion-spring);
+    mix-blend-mode: screen;
+  }
+
+  .search-box:focus-within::after,
+  .primary-button:hover::after,
+  .primary-button:focus-visible::after,
+  .secondary-button:hover::after,
+  .secondary-button:focus-visible::after {
+    opacity: 0.50;
+    transform: translate3d(22%, 0, 0) rotate(7deg);
+  }
+
+  .movie-card::before {
+    background:
+      radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.070), transparent 35%),
+      radial-gradient(circle at 82% 12%, rgba(var(--accent-rgb), 0.105), transparent 34%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.050), rgba(255, 255, 255, 0.010));
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  .movie-card::after {
+    inset: -42% -78%;
+    top: -42%;
+    width: auto;
+    height: auto;
+    border-radius: inherit;
+    background:
+      linear-gradient(118deg, transparent 0 43%, rgba(255, 255, 255, 0.18) 49%, rgba(var(--accent-rgb), 0.10) 53%, transparent 61%);
+    opacity: 0;
+    transform: translate3d(-18%, 0, 0) rotate(8deg);
+    filter: none;
+    mix-blend-mode: screen;
+  }
+
+  .movie-card:hover::after,
+  .movie-card:focus-visible::after {
+    opacity: 0.62;
+    transform: translate3d(22%, 0, 0) rotate(8deg);
+  }
+
+  .movie-card:hover img,
+  .movie-card:focus-visible img {
+    transform: translate3d(0, 0, 0) scale(1.035);
+    transition: transform 620ms var(--cf-motion-spring);
+  }
+
+  .style-chip:hover,
+  .style-chip:focus-visible,
+  .resource-card:hover,
+  .resource-card:focus-within {
+    transform: translate3d(0, -4px, 0);
+  }
+
+  body.island-mode .search-box,
+  body.island-expanded-mode .search-box {
+    transition:
+      transform 420ms var(--cf-motion-spring),
+      border-color 260ms ease,
+      background-color 260ms ease;
+  }
+
+  body.island-mode .search-box:focus-within,
+  body.island-expanded-mode .search-box:focus-within {
+    transform: translate3d(0, -1px, 0) scale(1.006);
+  }
+
+  body.island-mode.is-island-dragging .search-box,
+  body.island-expanded-mode.is-island-dragging .search-box {
+    transform: translate3d(0, 0, 0) !important;
+  }
+
+  .modal-backdrop:not(.is-hidden),
+  .close-choice-backdrop:not(.is-hidden),
+  .player-modal.is-open {
+    animation: cfBackdropBloom 360ms var(--cf-motion-luxury) both;
+  }
+
+  .player-shell::before {
+    transform: translate3d(-8%, 0, 0);
+  }
+
+  .player-modal.is-open .player-shell::before {
+    opacity: 0.64;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .detail-panel {
+    transition: transform 720ms cubic-bezier(0.18, 0.92, 0.18, 1) !important;
+  }
+
+  .detail-panel.is-rippling-close {
+    transition: transform 560ms cubic-bezier(0.28, 0, 0.18, 1) !important;
+  }
+
+  .detail-panel::after {
+    filter: blur(7px) saturate(1.16);
+  }
+}
+
+@keyframes cfBackdropBloom {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* CineFlow premium motion guard：检测到长帧后自动降级高阶动效，优先保证极致流畅。 */
+body.is-motion-throttled .is-premium-section,
+body.is-motion-throttled .is-premium-section.is-section-visible {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
+  animation: none !important;
+  will-change: auto !important;
+}
+
+body.is-motion-throttled .is-premium-revealing,
+body.is-motion-throttled .movie-card.is-pointer-lit,
+body.is-motion-throttled .resource-card.is-pointer-lit,
+body.is-motion-throttled .hero-section.is-section-visible .hero-copy,
+body.is-motion-throttled .hero-section.is-section-visible .hero-poster,
+body.is-motion-throttled .hero-section.is-section-visible .hero-backdrop {
+  animation: none !important;
+  transform: none !important;
+  will-change: auto !important;
+}
+
+body.is-motion-throttled .search-box::after,
+body.is-motion-throttled .primary-button::after,
+body.is-motion-throttled .secondary-button::after,
+body.is-motion-throttled .movie-card::after,
+body.is-motion-throttled .resource-card::after,
+body.is-motion-throttled .player-shell::before,
+body.is-motion-throttled .island-restore-button::after {
+  opacity: 0 !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+/* 灵动岛恢复主窗口专用轻量过渡：避免窗口 resize 期间叠加复杂卡片/流光动画。 */
+body.is-window-restoring .is-premium-revealing,
+body.is-window-restoring .movie-card.is-pointer-lit,
+body.is-window-restoring .resource-card.is-pointer-lit,
+body.is-window-restoring .hero-section.is-section-visible .hero-copy,
+body.is-window-restoring .hero-section.is-section-visible .hero-poster,
+body.is-window-restoring .hero-section.is-section-visible .hero-backdrop {
+  animation: none !important;
+  will-change: auto !important;
+}
+
+body.is-window-restoring .search-box::after,
+body.is-window-restoring .primary-button::after,
+body.is-window-restoring .secondary-button::after,
+body.is-window-restoring .movie-card::after,
+body.is-window-restoring .resource-card::after,
+body.is-window-restoring .island-restore-button::after {
+  opacity: 0 !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body.is-window-restoring #app {
+    transform: translate3d(0, 0, 0) scale(0.996);
+    transition:
+      transform 340ms var(--cf-motion-spring),
+      opacity 220ms ease !important;
+  }
+
+  body.is-window-restoring .app-shell {
+    animation: cfIslandRestoreSilk 340ms var(--cf-motion-spring) both !important;
+    will-change: transform, opacity;
+  }
+}
+
+@keyframes cfIslandRestoreSilk {
+  0% {
+    opacity: 0.80;
+    transform: translate3d(0, 6px, 0) scale(0.996);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .movie-card.is-premium-revealing,
+  .style-chip.is-premium-revealing,
+  .resource-card.is-premium-revealing {
+    animation: cfPremiumContentReveal 620ms var(--cf-motion-spring) both;
+    animation-delay: var(--cf-reveal-delay, 0ms);
+    will-change: transform, opacity;
+  }
+}
+
+@keyframes cfPremiumContentReveal {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.982);
+  }
+  58% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+/* CineFlow premium motion pass IV：页面级层次入场，IntersectionObserver 触发一次，零滚动监听。 */
+@media (prefers-reduced-motion: no-preference) {
+  .is-premium-section {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0) scale(0.994);
+    transition:
+      opacity 620ms var(--cf-motion-luxury),
+      transform 760ms var(--cf-motion-spring);
+    transition-delay: var(--cf-section-delay, 0ms);
+    will-change: transform, opacity;
+  }
+
+  .is-premium-section.is-section-visible {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    will-change: auto;
+  }
+
+  .hero-section.is-section-visible .hero-copy {
+    animation: cfHeroCopySettle 760ms var(--cf-motion-spring) both;
+  }
+
+  .hero-section.is-section-visible .hero-poster {
+    animation: cfHeroPosterSettle 820ms var(--cf-motion-spring) both;
+  }
+
+  .hero-section.is-section-visible .hero-backdrop {
+    animation: cfHeroBackdropBreathe 920ms var(--cf-motion-luxury) both;
+  }
+}
+
+@keyframes cfHeroCopySettle {
+  0% {
+    opacity: 0.72;
+    transform: translate3d(0, 10px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes cfHeroPosterSettle {
+  0% {
+    opacity: 0.72;
+    transform: translate3d(10px, 0, 0) scale(0.982) rotate(0.001deg);
+  }
+  58% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1) rotate(0.001deg);
+  }
+}
+
+@keyframes cfHeroBackdropBreathe {
+  0% {
+    opacity: 0.42;
+    transform: scale(1.018);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* CineFlow premium motion pass III：单卡片 rAF 指针光感，只有当前悬停卡片参与合成层。 */
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .movie-card,
+  .resource-card {
+    --cf-pointer-x: 50%;
+    --cf-pointer-y: 18%;
+    --cf-card-tilt-x: 0deg;
+    --cf-card-tilt-y: 0deg;
+    --cf-sheen-x: 0%;
+    --cf-sheen-y: 0%;
+    perspective: 900px;
+  }
+
+  .movie-card.is-pointer-lit,
+  .resource-card.is-pointer-lit {
+    will-change: transform;
+  }
+
+  .movie-card.is-pointer-lit:hover,
+  .movie-card.is-pointer-lit:focus-visible {
+    transform:
+      perspective(900px)
+      translate3d(0, -8px, 0)
+      rotateX(var(--cf-card-tilt-y))
+      rotateY(var(--cf-card-tilt-x))
+      scale(1.014);
+  }
+
+  .resource-card.is-pointer-lit:hover,
+  .resource-card.is-pointer-lit:focus-within {
+    transform:
+      perspective(900px)
+      translate3d(0, -5px, 0)
+      rotateX(var(--cf-card-tilt-y))
+      rotateY(var(--cf-card-tilt-x))
+      scale(1.006);
+  }
+
+  .movie-card.is-pointer-lit::before {
+    background:
+      radial-gradient(circle at var(--cf-pointer-x) var(--cf-pointer-y), rgba(255, 255, 255, 0.15), transparent 28%),
+      radial-gradient(circle at calc(100% - var(--cf-pointer-x)) 0%, rgba(var(--accent-rgb), 0.11), transparent 34%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.050), rgba(255, 255, 255, 0.010));
+  }
+
+  .movie-card.is-pointer-lit::after {
+    background:
+      linear-gradient(
+        118deg,
+        transparent 0 42%,
+        rgba(255, 255, 255, 0.22) 48%,
+        rgba(var(--accent-rgb), 0.12) 52%,
+        transparent 62%
+    );
+    transform:
+      translate3d(var(--cf-sheen-x), var(--cf-sheen-y), 0)
+      rotate(8deg);
+  }
+
+  .resource-card {
+    overflow: hidden;
+  }
+
+  .resource-card::after {
+    content: "";
+    position: absolute;
+    inset: -50% -70%;
+    z-index: 0;
+    opacity: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+      radial-gradient(circle at var(--cf-pointer-x) var(--cf-pointer-y), rgba(255, 255, 255, 0.13), transparent 28%),
+      linear-gradient(112deg, transparent 0 42%, rgba(255, 255, 255, 0.16) 48%, rgba(var(--accent-rgb), 0.10) 54%, transparent 62%);
+    transform: translate3d(-14%, 0, 0) rotate(7deg);
+    transition:
+      opacity 360ms var(--cf-motion-luxury),
+      transform 620ms var(--cf-motion-spring);
+    mix-blend-mode: screen;
+  }
+
+  .resource-card.is-pointer-lit::after,
+  .resource-card:hover::after,
+  .resource-card:focus-within::after {
+    opacity: 0.52;
+    transform: translate3d(14%, 0, 0) rotate(7deg);
+  }
+
+  .resource-card > * {
+    position: relative;
+    z-index: 1;
+  }
 }

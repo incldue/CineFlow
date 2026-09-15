@@ -11,6 +11,13 @@ const DETAIL_CACHE_MAX = 72;
 const RAIL_CACHE_MAX = 96;
 const CARD_MOVIE_CACHE_MAX = 2000;
 const PREF_SAVE_DEBOUNCE_MS = 240;
+const WINDOW_RESTORE_MOTION_MS = 380;
+const PLAYER_MODAL_CLOSE_MS = 320;
+const PREMIUM_REVEAL_MAX = 14;
+const PREMIUM_REVEAL_CLEANUP_MS = 900;
+const MOTION_GUARD_SAMPLE_MS = 9000;
+const MOTION_GUARD_LONG_FRAME_MS = 46;
+const MOTION_GUARD_LONG_FRAME_LIMIT = 6;
 
 const FALLBACK_GENRES = [
   { id: 28, name: '动作' },
@@ -184,6 +191,10 @@ const dom = {
   apiCredentialInput: document.querySelector('#apiCredentialInput'),
   proxyInput: document.querySelector('#proxyInput'),
   resourceModeSelect: document.querySelector('#resourceModeSelect'),
+  resourcePlaybackModeSelect: document.querySelector('#resourcePlaybackModeSelect'),
+  resourceSourceInput: document.querySelector('#resourceSourceInput'),
+  importResourceSourcesBtn: document.querySelector('#importResourceSourcesBtn'),
+  clearResourceSourcesBtn: document.querySelector('#clearResourceSourcesBtn'),
   saveSettingsBtn: document.querySelector('#saveSettingsBtn'),
   testConnectionBtn: document.querySelector('#testConnectionBtn'),
   clearSettingsBtn: document.querySelector('#clearSettingsBtn'),
@@ -224,7 +235,22 @@ const state = {
   popular: [],
   credential: null,
   proxy: null,
-  resourceSettings: { mode: 'stable', label: '稳定优先', enabled: true },
+  resourceSettings: {
+    mode: 'stable',
+    label: '稳定优先',
+    enabled: true,
+    playbackMode: 'auto',
+    playbackLabel: '自动判断（推荐）',
+    playbackModes: [
+      { value: 'auto', label: '自动判断（推荐）', description: '' },
+      { value: 'direct', label: '直连优先', description: '' },
+      { value: 'proxy', label: '本地代理优先', description: '' }
+    ],
+    sources: [],
+    sourceCount: 0,
+    builtInSourceCount: 0,
+    customSourceCount: 0
+  },
   player: {
     open: false,
     url: '',
@@ -240,6 +266,10 @@ const state = {
     playlistId: '',
     playlist: [],
     episodeIndex: 0,
+    playbackMode: 'auto',
+    transport: 'direct',
+    transportFallbackUsed: false,
+    proxyUrlPromise: null,
     recoveries: 0,
     loadId: 0,
     seeking: false
@@ -258,6 +288,7 @@ const state = {
   lastDetailMovieId: null,
   lastDetailMediaType: 'movie',
   lastDetailFallback: null,
+  lastRenderedDetail: null,
   activeResourceSearchId: 0,
   islandPointer: {
     down: false,
@@ -291,11 +322,16 @@ let playerDash = null;
 let playerFlv = null;
 let playerCloseTimer = 0;
 let playerPrewarmTimer = 0;
+let playerPrewarmKinds = new Set();
 let fullscreenQualityTimer = 0;
 let fullscreenQualityRampTimer = 0;
 let playerSeekTimer = 0;
 let playerLastSeekAt = 0;
 let resourcePlaylistSeq = 0;
+let premiumPointerFrame = 0;
+let premiumPointerTarget = null;
+let premiumPointerSnapshot = null;
+let premiumSectionObserver = null;
 
 function imageUrl(path, size) {
   return path ? `${IMAGE_BASE}/${size}${path}` : '';
@@ -821,12 +857,39 @@ function hideMoreButtonForRail(rail) {
   if (button) button.hidden = true;
 }
 
+function prefersReducedMotion() {
+  return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+}
+
+function schedulePremiumReveal(elements, options = {}) {
+  if (!Array.isArray(elements) || !elements.length || prefersReducedMotion() || document.body.classList.contains('is-motion-throttled')) return;
+  const limit = Math.min(elements.length, Number(options.limit || PREMIUM_REVEAL_MAX));
+  window.requestAnimationFrame(() => {
+    for (let index = 0; index < limit; index += 1) {
+      const element = elements[index];
+      if (!element) continue;
+      element.style.setProperty('--cf-reveal-index', String(index));
+      element.style.setProperty('--cf-reveal-delay', `${index * 34}ms`);
+      element.classList.add('is-premium-revealing');
+      window.setTimeout(() => {
+        element.classList.remove('is-premium-revealing');
+        element.style.removeProperty('--cf-reveal-index');
+        element.style.removeProperty('--cf-reveal-delay');
+      }, PREMIUM_REVEAL_CLEANUP_MS + index * 34);
+    }
+  });
+}
+
 function appendMoviesToRail(rail, movies, options = {}) {
   const fragment = document.createDocumentFragment();
+  const cards = [];
   for (const movie of movies) {
-    fragment.appendChild(createMovieCard(movie, options));
+    const card = createMovieCard(movie, options);
+    cards.push(card);
+    fragment.appendChild(card);
   }
   rail.appendChild(fragment);
+  schedulePremiumReveal(cards, { limit: options.revealLimit });
 }
 
 function createMovieCard(movie, { compact = false } = {}) {
@@ -927,7 +990,7 @@ function collapseRail(button, rail) {
   rail.closest('.content-section')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-function scheduleScrollToInputRecommendations() {
+function scheduleScrollToInputRecommendations(options = {}) {
   if (!dom.searchSection || dom.searchSection.classList.contains('is-hidden')) return;
 
   const scrollOnce = (behavior = 'auto') => {
@@ -940,9 +1003,18 @@ function scheduleScrollToInputRecommendations() {
     dom.searchSection.scrollIntoView({ behavior, block: 'start', inline: 'nearest' });
   };
 
-  requestAnimationFrame(() => scrollOnce('auto'));
-  window.setTimeout(() => scrollOnce('smooth'), 160);
-  window.setTimeout(() => scrollOnce('smooth'), 420);
+  const run = () => {
+    requestAnimationFrame(() => scrollOnce('auto'));
+    window.setTimeout(() => scrollOnce('smooth'), 120);
+    window.setTimeout(() => scrollOnce('smooth'), 320);
+  };
+
+  const delayMs = Math.max(0, Number(options.delayMs || 0));
+  if (delayMs > 0) {
+    window.setTimeout(run, delayMs);
+  } else {
+    run();
+  }
 }
 
 function restoreNormalAndFocusInputRecommendations() {
@@ -985,17 +1057,18 @@ function restoreNormalFromIsland(options = {}) {
   if (!isIslandLikeMode()) return;
   const shouldFocusInputRecommendations = Boolean(options.focusInputRecommendations);
 
+  resetPremiumPointerMotion();
   setWindowRestoringState(true);
   syncIslandRestoreButtonState({ restoring: true });
   window.setTimeout(() => {
     setWindowRestoringState(false);
     syncIslandRestoreButtonState();
-  }, 620);
+  }, WINDOW_RESTORE_MOTION_MS);
 
   api.restoreNormal();
   applyWindowMode({ mode: 'normal' });
   if (shouldFocusInputRecommendations) {
-    scheduleScrollToInputRecommendations();
+    scheduleScrollToInputRecommendations({ delayMs: Math.max(280, WINDOW_RESTORE_MOTION_MS - 120) });
   }
 }
 
@@ -1087,6 +1160,7 @@ function renderStyles() {
 
   dom.styleRail.innerHTML = '';
   const fragment = document.createDocumentFragment();
+  const chips = [];
   for (const genre of picked) {
     const item = document.createElement('button');
     item.className = 'style-chip';
@@ -1100,9 +1174,11 @@ function renderStyles() {
       await showGenreSearch(genre);
       renderPersonalized();
     });
+    chips.push(item);
     fragment.appendChild(item);
   }
   dom.styleRail.appendChild(fragment);
+  schedulePremiumReveal(chips, { limit: 10 });
 }
 
 function styleOrder(name) {
@@ -1258,7 +1334,7 @@ async function loadInitial() {
     const data = await api.getInitialData();
     setSplashStatus('正在点亮推荐流');
     state.credential = data.credential;
-    state.resourceSettings = data.credential?.resources || state.resourceSettings;
+    applyResourceSettings(data.credential?.resources || state.resourceSettings);
     state.genres = data.genres?.length ? data.genres : FALLBACK_GENRES;
     state.genreMap = new Map(state.genres.map((genre) => [genre.id, genre.name]));
     state.trending = data.trending || [];
@@ -1297,10 +1373,12 @@ function updateSettingsState(credential) {
   const proxy = current?.proxy || state.proxy || { mode: 'system', value: 'system' };
   state.proxy = proxy;
   if (dom.proxyInput) dom.proxyInput.value = proxy.value || 'system';
-  const resources = current?.resources || state.resourceSettings || { mode: 'stable', label: '稳定优先', enabled: true };
-  state.resourceSettings = resources;
-  renderResourceModeOptions(resources);
+  const resources = applyResourceSettings(current?.resources || state.resourceSettings || {});
+  renderResourceModeOptions(resources, true);
+  renderResourcePlaybackModeOptions(resources, true);
+  renderResourceSourceInput(resources, true);
   if (dom.resourceModeSelect) dom.resourceModeSelect.value = resources.mode || 'stable';
+  if (dom.resourcePlaybackModeSelect) dom.resourcePlaybackModeSelect.value = resources.playbackMode || 'auto';
   const proxyLabel = proxy.mode === 'system'
     ? '系统代理'
     : proxy.mode === 'direct'
@@ -1308,15 +1386,50 @@ function updateSettingsState(credential) {
       : proxy.mode === 'auto_detect'
         ? '自动检测'
         : proxy.value;
+  const sourceSummary = [
+    `内置 ${resources.builtInSourceCount || 0}`,
+    `自定义 ${resources.customSourceCount || 0}`,
+    `总计 ${resources.sourceCount || 0}`
+  ].join(' · ');
   if (current?.configured) {
-    dom.settingsState.innerHTML = `当前已配置：<strong>${current.type === 'readToken' ? 'Read Access Token' : 'API Key'}</strong> <span>${escapeHtml(current.preview || '')}</span> <em>${escapeHtml(current.source || '')}</em><br/>代理：<strong>${escapeHtml(proxyLabel || 'system')}</strong><br/>介绍页资源：<strong>${escapeHtml(resources.label || '稳定优先')}</strong>`;
+    dom.settingsState.innerHTML = `当前已配置：<strong>${current.type === 'readToken' ? 'Read Access Token' : 'API Key'}</strong> <span>${escapeHtml(current.preview || '')}</span> <em>${escapeHtml(current.source || '')}</em><br/>代理：<strong>${escapeHtml(proxyLabel || 'system')}</strong><br/>介绍页资源：<strong>${escapeHtml(resources.label || '稳定优先')}</strong><br/>播放方式：<strong>${escapeHtml(resources.playbackLabel || '自动判断')}</strong><br/>资源源：<strong>${escapeHtml(sourceSummary)}</strong>`;
   } else {
-    dom.settingsState.innerHTML = `当前未配置 TMDB 密钥。<br/>代理：<strong>${escapeHtml(proxyLabel || 'system')}</strong><br/>介绍页资源：<strong>${escapeHtml(resources.label || '稳定优先')}</strong>`;
+    dom.settingsState.innerHTML = `当前未配置 TMDB 密钥。<br/>代理：<strong>${escapeHtml(proxyLabel || 'system')}</strong><br/>介绍页资源：<strong>${escapeHtml(resources.label || '稳定优先')}</strong><br/>播放方式：<strong>${escapeHtml(resources.playbackLabel || '自动判断')}</strong><br/>资源源：<strong>${escapeHtml(sourceSummary)}</strong>`;
   }
 }
 
-function renderResourceModeOptions(resources = state.resourceSettings) {
-  if (!dom.resourceModeSelect || dom.resourceModeSelect.dataset.synced === '1') return;
+function applyResourceSettings(next = {}) {
+  const merged = {
+    ...state.resourceSettings,
+    ...(next || {})
+  };
+  merged.mode = merged.mode || 'stable';
+  merged.label = merged.label || '稳定优先';
+  merged.description = merged.description || '';
+  merged.enabled = merged.enabled !== false;
+  merged.playbackMode = normalizePlaybackMode(merged.playbackMode);
+  merged.playbackModes = Array.isArray(merged.playbackModes) && merged.playbackModes.length
+    ? merged.playbackModes
+    : [
+        { value: 'auto', label: '自动判断（推荐）', description: '直链优先，必要时回退本地代理。' },
+        { value: 'direct', label: '直连优先', description: '尽量不使用本地媒体代理。' },
+        { value: 'proxy', label: '本地代理优先', description: '始终通过本地媒体代理播放。' }
+      ];
+  const playbackModeItem = merged.playbackModes.find((item) => item.value === merged.playbackMode);
+  merged.playbackLabel = merged.playbackLabel || playbackModeItem?.label || '自动判断（推荐）';
+  merged.playbackDescription = merged.playbackDescription || playbackModeItem?.description || '';
+  merged.sources = Array.isArray(merged.sources) ? merged.sources : [];
+  merged.sourceCount = Number(merged.sourceCount || 0);
+  merged.builtInSourceCount = Number(merged.builtInSourceCount || 0);
+  merged.customSourceCount = Number(merged.customSourceCount || 0);
+  merged.revision = Number(merged.revision || 0);
+  state.resourceSettings = merged;
+  if (state.credential) state.credential.resources = merged;
+  return merged;
+}
+
+function renderResourceModeOptions(resources = state.resourceSettings, force = false) {
+  if (!dom.resourceModeSelect || (!force && dom.resourceModeSelect.dataset.synced === '1')) return;
   const modes = Array.isArray(resources?.modes) ? resources.modes : [];
   if (!modes.length) return;
   const selected = resources?.mode || dom.resourceModeSelect.value || 'stable';
@@ -1330,7 +1443,49 @@ function renderResourceModeOptions(resources = state.resourceSettings) {
   dom.resourceModeSelect.dataset.synced = '1';
 }
 
+function renderResourcePlaybackModeOptions(resources = state.resourceSettings, force = false) {
+  if (!dom.resourcePlaybackModeSelect || (!force && dom.resourcePlaybackModeSelect.dataset.synced === '1')) return;
+  const modes = Array.isArray(resources?.playbackModes) ? resources.playbackModes : [];
+  if (!modes.length) return;
+  const selected = resources?.playbackMode || dom.resourcePlaybackModeSelect.value || 'auto';
+  dom.resourcePlaybackModeSelect.innerHTML = modes
+    .map((mode) => `<option value="${escapeHtml(mode.value)}" title="${escapeHtml(mode.description || '')}">${escapeHtml(mode.label)}</option>`)
+    .join('');
+  dom.resourcePlaybackModeSelect.value = modes.some((mode) => mode.value === selected) ? selected : 'auto';
+  dom.resourcePlaybackModeSelect.dataset.synced = '1';
+}
+
+function renderResourceSourceInput(resources = state.resourceSettings, force = false) {
+  if (!dom.resourceSourceInput || (!force && dom.resourceSourceInput.dataset.synced === '1')) return;
+  const sources = Array.isArray(resources?.sources) ? resources.sources.filter((source) => source.origin === 'custom') : [];
+  if (!sources.length) {
+    dom.resourceSourceInput.value = '';
+    dom.resourceSourceInput.dataset.synced = '1';
+    return;
+  }
+  dom.resourceSourceInput.value = JSON.stringify(
+    sources.map((source) => ({
+      name: source.name,
+      api: source.api,
+      modes: source.modes,
+      note: source.note || ''
+    })),
+    null,
+    2
+  );
+  dom.resourceSourceInput.dataset.synced = '1';
+}
+
+function refreshActiveDetailResources() {
+  if (!dom.detailPanel?.classList.contains('is-open')) return;
+  if (!state.lastRenderedDetail) return;
+  loadDetailResources(state.lastRenderedDetail);
+}
+
 function openSettings() {
+  if (dom.resourceModeSelect) dom.resourceModeSelect.dataset.synced = '0';
+  if (dom.resourcePlaybackModeSelect) dom.resourcePlaybackModeSelect.dataset.synced = '0';
+  if (dom.resourceSourceInput) dom.resourceSourceInput.dataset.synced = '0';
   updateSettingsState(state.credential);
   dom.settingsModal.classList.remove('is-hidden');
   dom.settingsModal.setAttribute('aria-hidden', 'false');
@@ -1346,8 +1501,7 @@ async function syncResourceSettings() {
   try {
     const resources = await api.getResourceSettings?.();
     if (!resources) return;
-    state.resourceSettings = resources;
-    if (state.credential) state.credential.resources = resources;
+    applyResourceSettings(resources);
     updateSettingsState(state.credential);
   } catch {
     // Resource settings are optional; keep the local default if loading fails.
@@ -1368,6 +1522,7 @@ async function saveSettings() {
   const credentialValue = dom.apiCredentialInput.value.trim();
   const proxyValue = dom.proxyInput?.value.trim() || 'system';
   const resourceMode = dom.resourceModeSelect?.value || state.resourceSettings?.mode || 'stable';
+  const playbackMode = dom.resourcePlaybackModeSelect?.value || state.resourceSettings?.playbackMode || 'auto';
   dom.saveSettingsBtn.disabled = true;
   dom.saveSettingsBtn.textContent = '保存中...';
   try {
@@ -1378,9 +1533,10 @@ async function saveSettings() {
     const savedState = await api.saveProxy(proxyValue);
     state.credential = savedState;
     state.proxy = savedState.proxy;
-    state.resourceSettings = await api.saveResourceMode?.(resourceMode) || state.resourceSettings;
-    if (state.credential) state.credential.resources = state.resourceSettings;
+    applyResourceSettings(await api.saveResourceMode?.(resourceMode) || state.resourceSettings);
+    applyResourceSettings(await api.saveResourcePlaybackMode?.(playbackMode) || state.resourceSettings);
     updateSettingsState(state.credential);
+    refreshActiveDetailResources();
     closeSettings();
     toast('设置已保存');
     await loadInitial();
@@ -1396,9 +1552,54 @@ async function clearSettings() {
   try {
     state.credential = await api.clearCredential();
     updateSettingsState(state.credential);
+    refreshActiveDetailResources();
     toast('已清除本机密钥');
   } catch (error) {
     toast(readableError(error));
+  }
+}
+
+async function importResourceSources() {
+  const payload = dom.resourceSourceInput?.value || '';
+  dom.importResourceSourcesBtn.disabled = true;
+  dom.importResourceSourcesBtn.textContent = '导入中...';
+  try {
+    const resources = await api.importResourceSources?.(payload);
+    if (resources) {
+      applyResourceSettings(resources);
+      if (dom.resourceSourceInput) dom.resourceSourceInput.dataset.synced = '0';
+      updateSettingsState(state.credential);
+      refreshActiveDetailResources();
+      toast(`已导入 ${resources.customSourceCount || 0} 个自定义源`);
+    }
+  } catch (error) {
+    toast(readableError(error));
+  } finally {
+    dom.importResourceSourcesBtn.disabled = false;
+    dom.importResourceSourcesBtn.textContent = '导入并刷新';
+  }
+}
+
+async function clearResourceSources() {
+  dom.clearResourceSourcesBtn.disabled = true;
+  dom.clearResourceSourcesBtn.textContent = '清空中...';
+  try {
+    const resources = await api.clearResourceSources?.();
+    if (resources) {
+      applyResourceSettings(resources);
+      if (dom.resourceSourceInput) {
+        dom.resourceSourceInput.value = '';
+        dom.resourceSourceInput.dataset.synced = '1';
+      }
+      updateSettingsState(state.credential);
+      refreshActiveDetailResources();
+      toast('自定义源已清空');
+    }
+  } catch (error) {
+    toast(readableError(error));
+  } finally {
+    dom.clearResourceSourcesBtn.disabled = false;
+    dom.clearResourceSourcesBtn.textContent = '清空自定义源';
   }
 }
 
@@ -1842,6 +2043,7 @@ function detailSkeleton(movie) {
 
 function renderDetails(details) {
   const isTv = mediaTypeOf(details) === 'tv';
+  state.lastRenderedDetail = details;
   const poster = imageUrl(details.posterPath, POSTER_SIZE);
   const backdrop = imageUrl(details.backdropPath, BACKDROP_SIZE);
   const countries = details.productionCountries?.map((item) => item.name).filter(Boolean).slice(0, 2).join(' · ');
@@ -2044,7 +2246,7 @@ function renderResourceCard(resource) {
     : (resource.remarks || resource.type || resource.year || '可播放');
 
   return `
-    <article class="resource-card" data-source="${escapeHtml(resource.sourceKey)}">
+    <article class="resource-card" data-source="${escapeHtml(resource.sourceKey)}" data-resource-kind="${escapeHtml(firstEpisode.kind || mediaKindOf(resource.firstUrl))}">
       <div class="resource-card-head">
         <div>
           <strong>${escapeHtml(sourceName)}</strong>
@@ -2105,6 +2307,16 @@ function bindResourceActions(container) {
       label: playButton.getAttribute('data-player-label') || ''
     });
   });
+
+  container.addEventListener('pointerover', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const card = target?.closest('.resource-card');
+    if (!card) return;
+    const kind = card.getAttribute('data-resource-kind') || '';
+    if (kind === 'hls' || kind === 'dash' || kind === 'flv') {
+      prewarmPlayerEngines([kind]);
+    }
+  }, { passive: true });
 }
 
 function normalizePlayableUrl(value) {
@@ -2217,6 +2429,10 @@ function cancelIdleTask(id) {
   }
 }
 
+function scheduleSoon(callback) {
+  return window.setTimeout(callback, 0);
+}
+
 function setPlayerStatus(message, options = {}) {
   if (!dom.playerStatus) return;
   const text = message || '';
@@ -2299,6 +2515,24 @@ async function loadFlvEngine() {
   return flvLoadPromise;
 }
 
+function prewarmPlayerEngines(kinds = []) {
+  for (const kind of kinds || []) {
+    if (kind === 'hls' || kind === 'dash' || kind === 'flv') {
+      playerPrewarmKinds.add(kind);
+    }
+  }
+  if (!playerPrewarmKinds.size || playerPrewarmTimer) return;
+
+  playerPrewarmTimer = scheduleSoon(() => {
+    const warmKinds = new Set(playerPrewarmKinds);
+    playerPrewarmKinds.clear();
+    playerPrewarmTimer = 0;
+    if (warmKinds.has('hls')) loadHlsEngine().catch(() => {});
+    if (warmKinds.has('dash')) loadDashEngine().catch(() => {});
+    if (warmKinds.has('flv')) loadFlvEngine().catch(() => {});
+  });
+}
+
 function destroyPlayerHls() {
   if (!playerHls) return;
   try {
@@ -2341,6 +2575,12 @@ function cleanupResourcePlayer() {
   playerSeekTimer = 0;
   playerLastSeekAt = 0;
   if (state.player) state.player.seeking = false;
+  if (state.player) {
+    state.player.proxyUrlPromise = null;
+    state.player.transportFallbackUsed = false;
+    state.player.selection = null;
+    state.player.transport = 'direct';
+  }
   dom.playerStage?.classList.remove('is-seeking');
   dom.playerShell?.classList.remove('has-episodes');
   dom.playerEpisodes?.classList.add('is-hidden');
@@ -2382,7 +2622,7 @@ function closeResourcePlayer() {
   playerCloseTimer = window.setTimeout(() => {
     dom.playerModal?.classList.add('is-hidden');
     dom.playerModal?.classList.remove('is-closing');
-  }, 220);
+  }, PLAYER_MODAL_CLOSE_MS);
 }
 
 async function beginPlayerPlayback(loadId) {
@@ -2569,7 +2809,7 @@ function applyFullscreenPlaybackQuality(options = {}) {
   }
 }
 
-function handlePlayerHlsError(loadId, data = {}) {
+async function handlePlayerHlsError(loadId, data = {}) {
   if (loadId !== state.player.loadId || !state.player.open || !playerHls) return;
   if (!data.fatal) {
     setPlayerStatus('片源轻微波动，正在继续缓冲...', { muted: true });
@@ -2589,6 +2829,7 @@ function handlePlayerHlsError(loadId, data = {}) {
     return;
   }
 
+  if (await tryFallbackToProxy(loadId)) return;
   setPlayerError('该线路的媒体流暂时不可用，建议切换其它播放项或外部打开。');
 }
 
@@ -2649,129 +2890,39 @@ function playPlayerEpisode(index) {
     label: episode.label || `第 ${episodeIndex + 1} 集`,
     playlistId: state.player.playlistId,
     playlist,
-    episodeIndex
+    episodeIndex,
+    playbackMode: state.player.playbackMode
   });
 }
 
-async function openResourcePlayer(payload = {}) {
-  const playlistId = payload.playlistId || '';
-  const playlist = Array.isArray(payload.playlist)
-    ? payload.playlist
-    : (playlistId ? state.resourcePlaylists.get(playlistId) || [] : []);
-  const episodeIndex = Math.max(0, Math.min(Math.max(playlist.length - 1, 0), Number(payload.episodeIndex || 0)));
-  const playlistEpisode = playlist[episodeIndex] || null;
-  const selectedUrl = playlistEpisode?.url || payload.url;
-  const rawUrl = normalizePlayableUrl(selectedUrl);
-  if (!rawUrl) {
-    toast('播放地址不可用');
-    return;
-  }
+function normalizePlaybackMode(value = 'auto') {
+  const mode = String(value || '').trim().toLowerCase();
+  return ['auto', 'direct', 'proxy'].includes(mode) ? mode : 'auto';
+}
 
-  const loadId = state.player.loadId + 1;
-  const hintedKind = playlistEpisode?.kind || payload.kind || mediaKindOf(rawUrl);
-  const selectedFormat = playlistEpisode?.format || payload.format || mediaKindLabel(hintedKind);
-  const needsResolve =
-    playlistEpisode?.needsResolve === true
-    || playlistEpisode?.needsResolve === '1'
-    || payload.needsResolve === true
-    || payload.needsResolve === '1'
-    || hintedKind === 'page';
-  cleanupResourcePlayer();
-  state.player = {
-    open: true,
-    url: rawUrl,
-    originalUrl: rawUrl,
-    resolvedUrl: '',
-    proxiedUrl: '',
-    kind: hintedKind,
-    format: selectedFormat,
-    title: playlistEpisode?.title || payload.title || '影视资源',
-    sourceName: playlistEpisode?.sourceName || payload.sourceName || '资源源',
-    lineName: playlistEpisode?.lineName || payload.lineName || '默认线路',
-    label: playlistEpisode?.label || payload.label || '播放项',
-    playlistId,
-    playlist,
-    episodeIndex,
-    recoveries: 0,
-    loadId,
-    seeking: false
-  };
+function shouldProxyPlaybackInitially(mediaKind, playbackMode) {
+  const mode = normalizePlaybackMode(playbackMode);
+  return mode === 'proxy';
+}
 
-  resetPlayerError();
-  showResourcePlayerModal();
+function canFallbackPlaybackToProxy(mediaKind, playbackMode) {
+  const mode = normalizePlaybackMode(playbackMode);
+  return mode === 'auto' && ['hls', 'dash', 'flv', 'mp4', 'webm', 'ogg', 'mpegts', 'native', 'native-video'].includes(mediaKind);
+}
 
-  if (dom.playerTitle) dom.playerTitle.textContent = state.player.title || '影视资源';
-  if (dom.playerSource) dom.playerSource.textContent = state.player.sourceName || 'CineFlow Player';
-  if (dom.playerMeta) {
-    dom.playerMeta.textContent = [state.player.lineName, state.player.label, selectedFormat].filter(Boolean).join(' · ') || '应用内极速播放';
-  }
-  renderPlayerEpisodes();
-  setPlayerLoading(true, '正在加载', '高清优先 · 全屏优化');
-  setPlayerStatus(needsResolve ? '解析播放页...' : '准备播放...');
-
-  await nextAnimationFrame();
-  await nextAnimationFrame();
-  if (loadId !== state.player.loadId || !state.player.open) return;
-
-  let mediaKind = hintedKind;
-  let mediaUrl = rawUrl;
-  let resolved = null;
-  if (needsResolve) {
-    try {
-      resolved = await api.resolveMediaUrl?.(rawUrl);
-      if (loadId !== state.player.loadId || !state.player.open) return;
-      mediaUrl = playableUrlFromResolveResult(resolved, rawUrl);
-      mediaKind = resolved?.kind || mediaKindOf(mediaUrl);
-      if (dom.playerMeta) {
-        const resolvedLabel = resolved?.resolved
-          ? `${selectedFormat} → ${resolved.format || mediaKindLabel(mediaKind)}`
-          : (resolved?.format || selectedFormat || mediaKindLabel(mediaKind));
-        dom.playerMeta.textContent = [state.player.lineName, state.player.label, resolvedLabel].filter(Boolean).join(' · ');
-      }
-      setPlayerStatus(resolved?.resolved ? `${resolved.format || mediaKindLabel(mediaKind)} · 已解析` : '解析完成');
-    } catch {
-      mediaUrl = rawUrl;
-      mediaKind = mediaKindOf(rawUrl);
-      setPlayerStatus('尝试直连...', { muted: true });
-    }
-  }
-
-  if (mediaKind === 'page') {
-    setPlayerError('该网页播放页暂时没有提取到真实视频地址，可外部打开或切换同资源下的 m3u8 / MP4 线路。');
-    return;
-  }
-
-  state.player.url = mediaUrl;
-  state.player.resolvedUrl = resolved?.resolved ? mediaUrl : '';
-  state.player.kind = mediaKind;
-
-  let engineWarmPromise = null;
-  if (mediaKind === 'hls') engineWarmPromise = loadHlsEngine().catch(() => null);
-  if (mediaKind === 'dash') engineWarmPromise = loadDashEngine().catch(() => null);
-  if (mediaKind === 'flv') engineWarmPromise = loadFlvEngine().catch(() => null);
-
-  let playableUrl = mediaUrl;
-  try {
-    playableUrl = await api.getMediaProxyUrl?.(mediaUrl) || mediaUrl;
-  } catch {
-    playableUrl = mediaUrl;
-  }
-
-  if (loadId !== state.player.loadId || !state.player.open) return;
-  state.player.proxiedUrl = playableUrl;
-
+async function startPlayerTransport(loadId, mediaKind, playbackUrl) {
   const video = dom.resourcePlayer;
-  if (!video) return;
+  if (!video || loadId !== state.player.loadId || !state.player.open) return false;
   video.preload = mediaKind === 'hls' || mediaKind === 'dash' ? 'metadata' : 'auto';
-  video.crossOrigin = 'anonymous';
+  video.crossOrigin = state.player.transport === 'proxy' || ['hls', 'dash', 'flv'].includes(mediaKind) ? 'anonymous' : '';
   video.disableRemotePlayback = true;
   video.playsInline = true;
 
   try {
     if (mediaKind === 'hls') {
-      setPlayerStatus('HLS 加载中...');
-      const HlsEngine = await (engineWarmPromise || loadHlsEngine());
-      if (loadId !== state.player.loadId || !state.player.open) return;
+      setPlayerStatus(state.player.transport === 'proxy' ? 'HLS 加载中（代理）...' : 'HLS 加载中...');
+      const HlsEngine = await (playerHls ? Promise.resolve(HlsClass) : loadHlsEngine());
+      if (loadId !== state.player.loadId || !state.player.open) return false;
       if (HlsEngine?.isSupported()) {
         setPlayerStatus('HLS 解析中...');
         playerHls = new HlsEngine({
@@ -2779,42 +2930,44 @@ async function openResourcePlayer(payload = {}) {
           lowLatencyMode: false,
           capLevelToPlayerSize: false,
           ignoreDevicePixelRatio: false,
-          backBufferLength: 30,
-          maxBufferLength: 36,
-          maxMaxBufferLength: 96,
-          maxBufferSize: 128 * 1000 * 1000,
+          backBufferLength: 18,
+          maxBufferLength: 24,
+          maxMaxBufferLength: 64,
+          maxBufferSize: 96 * 1000 * 1000,
           startFragPrefetch: true,
           abrEwmaFastVoD: 3,
           abrEwmaSlowVoD: 9,
           abrEwmaDefaultEstimate: 12000000,
-          abrBandWidthFactor: 0.90,
-          abrBandWidthUpFactor: 0.86,
-          maxStarvationDelay: 4,
-          maxLoadingDelay: 4,
-          maxBufferHole: 0.35,
-          maxFragLookUpTolerance: 0.25,
-          nudgeOffset: 0.08,
-          highBufferWatchdogPeriod: 2,
-          nudgeMaxRetry: 4,
-          manifestLoadingTimeOut: 10000,
-          levelLoadingTimeOut: 10000,
-          fragLoadingTimeOut: 22000
+          abrBandWidthFactor: 0.92,
+          abrBandWidthUpFactor: 0.88,
+          maxStarvationDelay: 3,
+          maxLoadingDelay: 3,
+          maxBufferHole: 0.28,
+          maxFragLookUpTolerance: 0.18,
+          nudgeOffset: 0.05,
+          highBufferWatchdogPeriod: 1.2,
+          nudgeMaxRetry: 3,
+          manifestLoadingTimeOut: 8500,
+          levelLoadingTimeOut: 8500,
+          fragLoadingTimeOut: 18000
         });
-        playerHls.on(HlsEngine.Events.ERROR, (_event, data) => handlePlayerHlsError(loadId, data));
+        playerHls.on(HlsEngine.Events.ERROR, (_event, data) => {
+          handlePlayerHlsError(loadId, data).catch(() => {});
+        });
         playerHls.on(HlsEngine.Events.MANIFEST_PARSED, () => {
           applyHlsQualityPreference(loadId);
           beginPlayerPlayback(loadId);
         });
         playerHls.attachMedia(video);
-        playerHls.loadSource(playableUrl);
-        return;
+        playerHls.loadSource(playbackUrl);
+        return true;
       }
     }
 
     if (mediaKind === 'dash') {
-      setPlayerStatus('DASH 加载中...');
-      const DashEngine = await (engineWarmPromise || loadDashEngine());
-      if (loadId !== state.player.loadId || !state.player.open) return;
+      setPlayerStatus(state.player.transport === 'proxy' ? 'DASH 加载中（代理）...' : 'DASH 加载中...');
+      const DashEngine = await (playerDash ? Promise.resolve(DashClass) : loadDashEngine());
+      if (loadId !== state.player.loadId || !state.player.open) return false;
       const factory = DashEngine?.MediaPlayer;
       if (typeof factory === 'function') {
         setPlayerStatus('DASH 解析中...');
@@ -2823,10 +2976,10 @@ async function openResourcePlayer(payload = {}) {
           playerDash.updateSettings?.({
             streaming: {
               lowLatencyEnabled: false,
-              stableBufferTime: 10,
-              stableBufferTimeFastSwitch: 6,
-              bufferTimeAtTopQuality: 18,
-              bufferTimeAtTopQualityLongForm: 30,
+              stableBufferTime: 8,
+              stableBufferTimeFastSwitch: 5,
+              bufferTimeAtTopQuality: 16,
+              bufferTimeAtTopQualityLongForm: 24,
               jumpGaps: true,
               fastSwitchEnabled: true,
               limitBitrateByPortal: false,
@@ -2857,16 +3010,16 @@ async function openResourcePlayer(payload = {}) {
           setPlayerLoading(true, '缓冲中', '网络波动');
           setPlayerStatus('缓冲中...', { muted: true });
         });
-        playerDash.on?.('error', () => setPlayerError('DASH 资源暂时无法解析，可切换其它线路或外部打开。'));
-        playerDash.initialize(video, playableUrl, true);
-        return;
+        playerDash.on?.('error', () => handlePlayerFallbackError(loadId, 'DASH 资源暂时无法解析，可切换其它线路或外部打开。'));
+        playerDash.initialize(video, playbackUrl, true);
+        return true;
       }
     }
 
     if (mediaKind === 'flv') {
-      setPlayerStatus('FLV 加载中...');
-      const FlvEngine = await (engineWarmPromise || loadFlvEngine());
-      if (loadId !== state.player.loadId || !state.player.open) return;
+      setPlayerStatus(state.player.transport === 'proxy' ? 'FLV 加载中（代理）...' : 'FLV 加载中...');
+      const FlvEngine = await (playerFlv ? Promise.resolve(FlvClass) : loadFlvEngine());
+      if (loadId !== state.player.loadId || !state.player.open) return false;
       if (FlvEngine?.isSupported?.()) {
         setPlayerStatus('FLV 解析中...');
         playerFlv = FlvEngine.createPlayer({
@@ -2874,33 +3027,227 @@ async function openResourcePlayer(payload = {}) {
           isLive: false,
           hasAudio: true,
           hasVideo: true,
-          url: playableUrl
+          url: playbackUrl
         }, {
           enableWorker: true,
           enableStashBuffer: true,
-          stashInitialSize: 1024 * 512,
+          stashInitialSize: 1024 * 320,
           lazyLoad: true,
-          lazyLoadMaxDuration: 180,
+          lazyLoadMaxDuration: 150,
           reuseRedirectedURL: true,
           autoCleanupSourceBuffer: true,
-          autoCleanupMaxBackwardDuration: 120,
-          autoCleanupMinBackwardDuration: 30
+          autoCleanupMaxBackwardDuration: 96,
+          autoCleanupMinBackwardDuration: 24
         });
-        playerFlv.on?.(FlvEngine.Events?.ERROR || 'error', () => {
-          setPlayerError('FLV 资源暂时无法解析，可切换其它线路或外部打开。');
-        });
+        playerFlv.on?.(FlvEngine.Events?.ERROR || 'error', () => handlePlayerFallbackError(loadId, 'FLV 资源暂时无法解析，可切换其它线路或外部打开。'));
         playerFlv.attachMediaElement(video);
         playerFlv.load();
         await beginPlayerPlayback(loadId);
-        return;
+        return true;
       }
     }
 
-    video.src = playableUrl;
+    video.src = playbackUrl;
     video.load();
     setPlayerStatus(mediaKind === 'mpegts' ? 'MPEG-TS 加载中...' : `${mediaKindLabel(mediaKind)} 加载中...`);
     await beginPlayerPlayback(loadId);
+    return true;
   } catch {
+    setPlayerStatus('播放地址暂时不可用，正在检查备用传输...', { muted: true });
+    return false;
+  }
+}
+
+function handlePlayerFallbackError(loadId, message) {
+  Promise.resolve(tryFallbackToProxy(loadId))
+    .then((recovered) => {
+      if (!recovered) setPlayerError(message);
+    })
+    .catch(() => setPlayerError(message));
+}
+
+async function tryFallbackToProxy(loadId) {
+  const playbackMode = normalizePlaybackMode(state.player.playbackMode || state.resourceSettings?.playbackMode || 'auto');
+  if (!canFallbackPlaybackToProxy(state.player.kind, playbackMode)) return false;
+  if (state.player.transport !== 'direct' || state.player.transportFallbackUsed || !state.player.selection) return false;
+  if (loadId !== state.player.loadId || !state.player.open) return false;
+
+  state.player.transportFallbackUsed = true;
+  state.player.transport = 'proxy';
+  setPlayerLoading(true, '切换代理中', '兼容性优先');
+  setPlayerStatus('直连失败，正在切换本地代理...', { muted: true });
+
+  let proxyUrl = state.player.proxiedUrl;
+  const pendingProxyUrl = state.player.proxyUrlPromise;
+  if (pendingProxyUrl && typeof pendingProxyUrl.then === 'function') {
+    try {
+      proxyUrl = await pendingProxyUrl || proxyUrl;
+    } catch {
+      // ignore and fall back to on-demand IPC below
+    }
+  }
+  if (!proxyUrl || proxyUrl === state.player.url) {
+    try {
+      proxyUrl = await api.getMediaProxyUrl?.(state.player.url) || state.player.url;
+    } catch {
+      proxyUrl = state.player.url;
+    }
+  }
+
+  if (loadId !== state.player.loadId || !state.player.open) return false;
+  if (!proxyUrl || proxyUrl === state.player.url) {
+    state.player.transport = 'direct';
+    state.player.transportFallbackUsed = false;
+    setPlayerError('直连播放失败，当前资源也无法通过本地代理加速。可尝试外部打开或切换其它线路。');
+    return false;
+  }
+  state.player.proxiedUrl = proxyUrl;
+
+  destroyPlayerHls();
+  destroyPlayerDash();
+  destroyPlayerFlv();
+
+  return startPlayerTransport(loadId, state.player.kind, proxyUrl);
+}
+
+async function openResourcePlayer(payload = {}) {
+  const playlistId = payload.playlistId || '';
+  const playlist = Array.isArray(payload.playlist)
+    ? payload.playlist
+    : (playlistId ? state.resourcePlaylists.get(playlistId) || [] : []);
+  const episodeIndex = Math.max(0, Math.min(Math.max(playlist.length - 1, 0), Number(payload.episodeIndex || 0)));
+  const playlistEpisode = playlist[episodeIndex] || null;
+  const selectedUrl = playlistEpisode?.url || payload.url;
+  const rawUrl = normalizePlayableUrl(selectedUrl);
+  if (!rawUrl) {
+    toast('播放地址不可用');
+    return;
+  }
+
+  const loadId = state.player.loadId + 1;
+  const hintedKind = playlistEpisode?.kind || payload.kind || mediaKindOf(rawUrl);
+  const selectedFormat = playlistEpisode?.format || payload.format || mediaKindLabel(hintedKind);
+  const needsResolve =
+    playlistEpisode?.needsResolve === true
+    || playlistEpisode?.needsResolve === '1'
+    || payload.needsResolve === true
+    || payload.needsResolve === '1'
+    || hintedKind === 'page';
+  const playbackMode = normalizePlaybackMode(payload.playbackMode || state.player.playbackMode || state.resourceSettings?.playbackMode || 'auto');
+  cleanupResourcePlayer();
+  state.player = {
+    open: true,
+    url: rawUrl,
+    originalUrl: rawUrl,
+    resolvedUrl: '',
+    proxiedUrl: '',
+    kind: hintedKind,
+    format: selectedFormat,
+    title: playlistEpisode?.title || payload.title || '影视资源',
+    sourceName: playlistEpisode?.sourceName || payload.sourceName || '资源源',
+    lineName: playlistEpisode?.lineName || payload.lineName || '默认线路',
+    label: playlistEpisode?.label || payload.label || '播放项',
+    playlistId,
+    playlist,
+    episodeIndex,
+    playbackMode,
+    transport: shouldProxyPlaybackInitially(hintedKind, playbackMode) ? 'proxy' : 'direct',
+    transportFallbackUsed: false,
+    selection: playlistEpisode || { url: rawUrl },
+    proxyUrlPromise: null,
+    recoveries: 0,
+    loadId,
+    seeking: false
+  };
+
+  resetPlayerError();
+  showResourcePlayerModal();
+
+  if (dom.playerTitle) dom.playerTitle.textContent = state.player.title || '影视资源';
+  if (dom.playerSource) dom.playerSource.textContent = state.player.sourceName || 'CineFlow Player';
+  if (dom.playerMeta) {
+    dom.playerMeta.textContent = [state.player.lineName, state.player.label, selectedFormat].filter(Boolean).join(' · ') || '应用内极速播放';
+  }
+  renderPlayerEpisodes();
+  setPlayerLoading(true, '正在加载', state.player.transport === 'proxy' ? '本地代理兼容优先' : '直连优先');
+  setPlayerStatus(needsResolve ? '解析播放页...' : '准备播放...');
+
+  const riskyDirectKinds = ['hls', 'dash', 'flv'].includes(hintedKind) && playbackMode === 'auto';
+  const resolvePromise = needsResolve && api.resolveMediaUrl
+    ? api.resolveMediaUrl(rawUrl).catch(() => null)
+    : Promise.resolve(null);
+  if (riskyDirectKinds) prewarmPlayerEngines([hintedKind]);
+
+  await nextAnimationFrame();
+  if (loadId !== state.player.loadId || !state.player.open) return;
+
+  let mediaKind = hintedKind;
+  let mediaUrl = rawUrl;
+  let resolved = null;
+  if (needsResolve) {
+    try {
+      resolved = await resolvePromise;
+      if (loadId !== state.player.loadId || !state.player.open) return;
+      mediaUrl = playableUrlFromResolveResult(resolved, rawUrl);
+      mediaKind = resolved?.kind || mediaKindOf(mediaUrl);
+      if (dom.playerMeta) {
+        const resolvedLabel = resolved?.resolved
+          ? `${selectedFormat} → ${resolved.format || mediaKindLabel(mediaKind)}`
+          : (resolved?.format || selectedFormat || mediaKindLabel(mediaKind));
+        dom.playerMeta.textContent = [state.player.lineName, state.player.label, resolvedLabel].filter(Boolean).join(' · ');
+      }
+      setPlayerStatus(resolved?.resolved ? `${resolved.format || mediaKindLabel(mediaKind)} · 已解析` : '解析完成');
+    } catch {
+      mediaUrl = rawUrl;
+      mediaKind = mediaKindOf(rawUrl);
+      setPlayerStatus('尝试直连...', { muted: true });
+    }
+  }
+
+  const effectiveTransport = state.player.transport;
+  const effectiveRiskyKinds = ['hls', 'dash', 'flv'].includes(mediaKind) && playbackMode === 'auto';
+  const proxyPromise = effectiveTransport === 'proxy' && api.getMediaProxyUrl
+    ? api.getMediaProxyUrl(mediaUrl).catch(() => mediaUrl)
+    : (effectiveRiskyKinds && api.getMediaProxyUrl
+      ? api.getMediaProxyUrl(mediaUrl).then((value) => {
+        const normalized = normalizePlayableUrl(value);
+        return normalized && normalized !== mediaUrl ? normalized : '';
+      }).catch(() => '')
+      : Promise.resolve(''));
+
+  if (mediaKind === 'page') {
+    setPlayerError('该网页播放页暂时没有提取到真实视频地址，可外部打开或切换同资源下的 m3u8 / MP4 线路。');
+    return;
+  }
+
+  state.player.url = mediaUrl;
+  state.player.resolvedUrl = resolved?.resolved ? mediaUrl : '';
+  state.player.kind = mediaKind;
+  state.player.selection = playlistEpisode || { url: mediaUrl };
+
+  let playableUrl = mediaUrl;
+  const needsProxyUrl = effectiveTransport === 'proxy';
+  if (needsProxyUrl) {
+    playableUrl = await proxyPromise;
+  } else if (effectiveRiskyKinds) {
+    state.player.proxyUrlPromise = proxyPromise;
+  }
+
+  if (loadId !== state.player.loadId || !state.player.open) return;
+  state.player.proxiedUrl = playableUrl;
+
+  const video = dom.resourcePlayer;
+  if (!video) return;
+  video.removeAttribute('src');
+  video.load();
+
+  const started = await startPlayerTransport(loadId, mediaKind, playableUrl);
+  if (!started && state.player.transport === 'direct') {
+    const recovered = await tryFallbackToProxy(loadId);
+    if (!recovered) {
+      setPlayerError('该播放地址暂时无法播放，可尝试外部打开或切换其它线路。');
+    }
+  } else if (!started) {
     setPlayerError('该播放地址暂时无法被播放器识别，可尝试外部打开或切换线路。');
   }
 }
@@ -2995,7 +3342,15 @@ function setupPlayerEvents() {
   });
   dom.resourcePlayer?.addEventListener('error', () => {
     if (!state.player.open) return;
-    setPlayerError('视频元素无法读取该资源，建议外部打开或切换其它线路。');
+    Promise.resolve(tryFallbackToProxy(state.player.loadId))
+      .then((recovered) => {
+        if (!recovered) {
+          setPlayerError('视频元素无法读取该资源，建议外部打开或切换其它线路。');
+        }
+      })
+      .catch(() => {
+        setPlayerError('视频元素无法读取该资源，建议外部打开或切换其它线路。');
+      });
   });
 
   const handleFullscreenQuality = () => {
@@ -3024,14 +3379,7 @@ function schedulePlayerEnginePrewarm(resources = []) {
     }
   }
   if (!kinds.size) return;
-
-  cancelIdleTask(playerPrewarmTimer);
-  playerPrewarmTimer = runWhenIdle(() => {
-    playerPrewarmTimer = 0;
-    if (kinds.has('hls')) loadHlsEngine().catch(() => {});
-    if (kinds.has('dash')) loadDashEngine().catch(() => {});
-    if (kinds.has('flv')) loadFlvEngine().catch(() => {});
-  }, 1600);
+  prewarmPlayerEngines(kinds);
 }
 
 function setResourceStatus(section, message, options = {}) {
@@ -3042,6 +3390,7 @@ function setResourceStatus(section, message, options = {}) {
 }
 
 async function loadDetailResources(details) {
+  state.lastRenderedDetail = details;
   const section = dom.detailContent.querySelector('#detailResources');
   const list = dom.detailContent.querySelector('#resourceResults');
   if (!section || !list) return;
@@ -3066,21 +3415,46 @@ async function loadDetailResources(details) {
   let found = 0;
   let total = 0;
   let checked = 0;
+  let activeRevision = Number(state.resourceSettings?.revision || 0);
   const payload = resourceSearchPayload(details);
 
   try {
     while (searchId === state.activeResourceSearchId) {
-      const result = await api.findMovieResources?.(payload, { cursor, limit: 2 });
+      const result = await api.findMovieResources?.(payload, { cursor, limit: 3 });
       if (searchId !== state.activeResourceSearchId || !result) return;
+
+      const nextRevision = Number(result.revision || 0);
+      if (nextRevision && nextRevision !== activeRevision) {
+        activeRevision = nextRevision;
+        seen.clear();
+        cursor = 0;
+        found = 0;
+        total = 0;
+        checked = 0;
+        state.resourcePlaylists.clear();
+        resourcePlaylistSeq = 0;
+        list.innerHTML = '<div class="resource-pulse">资源配置已更新，正在重新轮询资源源...</div>';
+        setResourceStatus(section, '资源配置已更新，正在重新轮询资源源...');
+        continue;
+      }
 
       total = result.total || total;
       checked = result.checked || checked;
-      state.resourceSettings = {
+      applyResourceSettings({
         mode: result.mode,
         label: result.label,
         description: result.description,
-        enabled: result.enabled
-      };
+        enabled: result.enabled,
+        playbackMode: result.playbackMode || state.resourceSettings.playbackMode || 'auto',
+        playbackLabel: result.playbackLabel || state.resourceSettings.playbackLabel || '自动判断（推荐）',
+        playbackDescription: result.playbackDescription || state.resourceSettings.playbackDescription || '',
+        playbackModes: result.playbackModes || state.resourceSettings.playbackModes || [],
+        sources: result.sources || state.resourceSettings.sources || [],
+        sourceCount: result.sourceCount ?? state.resourceSettings.sourceCount ?? 0,
+        builtInSourceCount: result.builtInSourceCount ?? state.resourceSettings.builtInSourceCount ?? 0,
+        customSourceCount: result.customSourceCount ?? state.resourceSettings.customSourceCount ?? 0,
+        revision: result.revision ?? state.resourceSettings.revision ?? 0
+      });
       section.querySelector('#resourceModeBadge').textContent = result.label || mode.label || '稳定优先';
 
       const cards = [];
@@ -3094,6 +3468,8 @@ async function loadDetailResources(details) {
       if (cards.length) {
         if (found === cards.length) list.innerHTML = '';
         list.insertAdjacentHTML('beforeend', cards.join(''));
+        const insertedCards = Array.from(list.querySelectorAll('.resource-card')).slice(-cards.length);
+        schedulePremiumReveal(insertedCards, { limit: 8 });
         schedulePlayerEnginePrewarm(result.resources || []);
       }
 
@@ -3106,7 +3482,7 @@ async function loadDetailResources(details) {
 
       if (result.done || found >= 8) break;
       cursor = result.nextCursor || checked;
-      await new Promise((resolve) => window.setTimeout(resolve, 140));
+      await new Promise((resolve) => window.setTimeout(resolve, 90));
     }
 
     if (searchId !== state.activeResourceSearchId) return;
@@ -3435,9 +3811,164 @@ function setupMovieCardDelegation() {
   });
 }
 
+function resetPremiumPointerMotion(surface = premiumPointerTarget) {
+  if (!surface) return;
+  surface.classList.remove('is-pointer-lit');
+  surface.style.removeProperty('--cf-pointer-x');
+  surface.style.removeProperty('--cf-pointer-y');
+  surface.style.removeProperty('--cf-card-tilt-x');
+  surface.style.removeProperty('--cf-card-tilt-y');
+  surface.style.removeProperty('--cf-sheen-x');
+  surface.style.removeProperty('--cf-sheen-y');
+  if (surface === premiumPointerTarget) {
+    premiumPointerTarget = null;
+    premiumPointerSnapshot = null;
+  }
+}
+
+function applyPremiumPointerMotion() {
+  premiumPointerFrame = 0;
+  const surface = premiumPointerTarget;
+  const snapshot = premiumPointerSnapshot;
+  if (!surface || !snapshot) return;
+
+  surface.classList.add('is-pointer-lit');
+  surface.style.setProperty('--cf-pointer-x', `${snapshot.x}%`);
+  surface.style.setProperty('--cf-pointer-y', `${snapshot.y}%`);
+  surface.style.setProperty('--cf-card-tilt-x', `${snapshot.tiltX}deg`);
+  surface.style.setProperty('--cf-card-tilt-y', `${snapshot.tiltY}deg`);
+  surface.style.setProperty('--cf-sheen-x', `${snapshot.sheenX}%`);
+  surface.style.setProperty('--cf-sheen-y', `${snapshot.sheenY}%`);
+}
+
+function setupPremiumPointerMotion() {
+  if (document.documentElement.dataset.premiumPointerMotion === 'true') return;
+  document.documentElement.dataset.premiumPointerMotion = 'true';
+
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  if (reduceMotion?.matches) return;
+
+  const clamp01 = (value) => Math.min(1, Math.max(0, value));
+
+  document.addEventListener('pointermove', (event) => {
+    if (event.pointerType === 'touch') return;
+    if (state.player.open || document.body.classList.contains('is-island-dragging') || document.body.classList.contains('is-motion-throttled')) {
+      resetPremiumPointerMotion();
+      return;
+    }
+
+    const surface = event.target instanceof Element
+      ? event.target.closest('.movie-card, .resource-card')
+      : null;
+
+    if (!surface) {
+      resetPremiumPointerMotion();
+      return;
+    }
+
+    if (premiumPointerTarget && premiumPointerTarget !== surface) {
+      resetPremiumPointerMotion(premiumPointerTarget);
+    }
+
+    const rect = surface.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const x = clamp01((event.clientX - rect.left) / rect.width);
+    const y = clamp01((event.clientY - rect.top) / rect.height);
+    premiumPointerTarget = surface;
+    premiumPointerSnapshot = {
+      x: Math.round(x * 100),
+      y: Math.round(y * 100),
+      tiltX: ((x - 0.5) * 3.2).toFixed(2),
+      tiltY: ((0.5 - y) * 2.4).toFixed(2),
+      sheenX: ((x - 0.5) * 36).toFixed(1),
+      sheenY: ((y - 0.5) * 10).toFixed(1)
+    };
+
+    if (!premiumPointerFrame) {
+      premiumPointerFrame = window.requestAnimationFrame(applyPremiumPointerMotion);
+    }
+  }, { passive: true });
+
+  document.addEventListener('pointerout', (event) => {
+    if (!premiumPointerTarget) return;
+    const related = event.relatedTarget;
+    if (related instanceof Node && premiumPointerTarget.contains(related)) return;
+    resetPremiumPointerMotion();
+  }, { passive: true });
+}
+
+function setupPremiumMotionGuard() {
+  if (document.documentElement.dataset.premiumMotionGuard === 'true') return;
+  document.documentElement.dataset.premiumMotionGuard = 'true';
+  if (prefersReducedMotion()) return;
+
+  const startedAt = performance.now();
+  let lastFrameAt = startedAt;
+  let longFrameCount = 0;
+
+  const sample = (now) => {
+    const delta = now - lastFrameAt;
+    lastFrameAt = now;
+    if (delta > MOTION_GUARD_LONG_FRAME_MS) {
+      longFrameCount += 1;
+    }
+
+    if (longFrameCount >= MOTION_GUARD_LONG_FRAME_LIMIT) {
+      document.body.classList.add('is-motion-throttled');
+      resetPremiumPointerMotion();
+      return;
+    }
+
+    if (now - startedAt < MOTION_GUARD_SAMPLE_MS) {
+      window.requestAnimationFrame(sample);
+    }
+  };
+
+  window.requestAnimationFrame(sample);
+}
+
+function setupPremiumSectionReveal() {
+  if (document.documentElement.dataset.premiumSectionReveal === 'true') return;
+  document.documentElement.dataset.premiumSectionReveal = 'true';
+  if (prefersReducedMotion()) return;
+
+  const sections = Array.from(document.querySelectorAll('.hero-section, .content-section'));
+  if (!sections.length) return;
+
+  for (const [index, section] of sections.entries()) {
+    section.classList.add('is-premium-section');
+    section.style.setProperty('--cf-section-delay', `${Math.min(index * 74, 220)}ms`);
+  }
+
+  if (!('IntersectionObserver' in window)) {
+    window.requestAnimationFrame(() => {
+      sections.forEach((section) => section.classList.add('is-section-visible'));
+    });
+    return;
+  }
+
+  premiumSectionObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      entry.target.classList.add('is-section-visible');
+      premiumSectionObserver?.unobserve(entry.target);
+    }
+  }, {
+    root: null,
+    threshold: 0.12,
+    rootMargin: '0px 0px -8% 0px'
+  });
+
+  sections.forEach((section) => premiumSectionObserver.observe(section));
+}
+
 function bindEvents() {
   setupSearch();
   setupMovieCardDelegation();
+  setupPremiumPointerMotion();
+  setupPremiumMotionGuard();
+  setupPremiumSectionReveal();
   setupIslandAutoRestore();
   setupIslandInteraction();
   setupIslandRestoreInteraction();
@@ -3453,6 +3984,8 @@ function bindEvents() {
   dom.saveSettingsBtn.addEventListener('click', saveSettings);
   dom.testConnectionBtn.addEventListener('click', testConnection);
   dom.clearSettingsBtn.addEventListener('click', clearSettings);
+  dom.importResourceSourcesBtn?.addEventListener('click', importResourceSources);
+  dom.clearResourceSourcesBtn?.addEventListener('click', clearResourceSources);
   dom.refreshBtn.addEventListener('click', async () => {
     state.railCache.clear();
     state.railCachePending.clear();
