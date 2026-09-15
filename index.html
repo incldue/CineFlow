@@ -151,25 +151,32 @@
           <button id="settingsCloseBtn" class="panel-close" type="button" aria-label="关闭设置">×</button>
           <p class="eyebrow">Settings</p>
           <h2 id="settingsTitle">TMDB 数据源配置</h2>
-          <p class="settings-copy">
-            CineFlow 会把密钥和代理设置仅保存到本机应用配置目录。若开了代理仍失败，请在下方填写代理地址。
-          </p>
-          <div id="settingsState" class="settings-state"></div>
-          <label class="settings-label" for="apiCredentialInput">TMDB API Key 或 Read Access Token</label>
-          <textarea id="apiCredentialInput" rows="4" spellcheck="false" placeholder="粘贴 TMDB v3 API Key，或以 eyJ... 开头的 Read Access Token"></textarea>
-          <label class="settings-label" for="proxyInput">代理地址</label>
-          <input id="proxyInput" class="settings-input" type="text" spellcheck="false" placeholder="system 或 http://127.0.0.1:7890 / socks5://127.0.0.1:7890" />
-          <label class="settings-label" for="resourceModeSelect">介绍页资源查找</label>
-          <select id="resourceModeSelect" class="settings-input">
-            <option value="stable">稳定优先（推荐）</option>
-            <option value="movie">电影片库优先</option>
-            <option value="full">全部来源</option>
-            <option value="off">关闭资源查找</option>
-          </select>
-          <div class="settings-actions">
-            <button id="saveSettingsBtn" class="primary-button" type="button">保存并刷新</button>
-            <button id="testConnectionBtn" class="secondary-button" type="button">测试连接</button>
-            <button id="clearSettingsBtn" class="secondary-button" type="button">清除本机密钥</button>
+          <div class="settings-scroll">
+            <div id="settingsState" class="settings-state"></div>
+            <label class="settings-label" for="apiCredentialInput">TMDB API Key 或 Read Access Token</label>
+            <textarea id="apiCredentialInput" rows="4" spellcheck="false" placeholder="粘贴 TMDB v3 API Key，或以 eyJ... 开头的 Read Access Token"></textarea>
+            <label class="settings-label" for="proxyInput">代理地址</label>
+            <input id="proxyInput" class="settings-input" type="text" spellcheck="false" placeholder="system 或 http://127.0.0.1:7890 / socks5://127.0.0.1:7890" />
+            <label class="settings-label" for="resourceModeSelect">介绍页资源查找</label>
+            <select id="resourceModeSelect" class="settings-input">
+              <option value="stable">稳定优先（推荐）</option>
+              <option value="movie">电影片库优先</option>
+              <option value="full">全部来源</option>
+              <option value="off">关闭资源查找</option>
+            </select>
+            <label class="settings-label" for="resourcePlaybackModeSelect">资源播放方式</label>
+            <select id="resourcePlaybackModeSelect" class="settings-input"></select>
+            <label class="settings-label" for="resourceSourceInput">自定义外部源导入</label>
+            <textarea id="resourceSourceInput" rows="5" spellcheck="false" placeholder="支持 JSON 数组、单行 name|api|modes|note，或直接粘贴配置 URL"></textarea>
+            <div class="settings-actions">
+              <button id="importResourceSourcesBtn" class="secondary-button" type="button">导入并刷新</button>
+              <button id="clearResourceSourcesBtn" class="secondary-button" type="button">清空自定义源</button>
+            </div>
+            <div class="settings-actions">
+              <button id="saveSettingsBtn" class="primary-button" type="button">保存并刷新</button>
+              <button id="testConnectionBtn" class="secondary-button" type="button">测试连接</button>
+              <button id="clearSettingsBtn" class="secondary-button" type="button">清除本机密钥</button>
+            </div>
           </div>
         </section>
       </div>

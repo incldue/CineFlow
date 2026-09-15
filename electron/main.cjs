@@ -41,6 +41,12 @@ const RESOURCE_MODES = {
   off: { label: '关闭资源查找', description: '介绍页底部不自动查找播放资源。' }
 };
 
+const PLAYBACK_TRANSPORT_MODES = {
+  auto: { label: '自动判断（推荐）', description: '直链资源直接播放，HLS / DASH / FLV 仅在必要时使用本地代理。' },
+  direct: { label: '直连优先', description: '尽量跳过本地媒体代理，适合支持 CORS 的资源。' },
+  proxy: { label: '本地代理优先', description: '始终通过本地媒体代理播放，兼容性最好。' }
+};
+
 const RESOURCE_SOURCES = [
   {
     key: 'dyttzy',
@@ -195,8 +201,15 @@ function animateWindowBounds(targetBounds, duration = 300) {
   if (!mainWindow) return;
   clearInterval(windowAnimationTimer);
   const startBounds = mainWindow.getBounds();
+  let lastBounds = { ...startBounds };
   const startedAt = Date.now();
   const ease = (t) => 1 - Math.pow(1 - t, 3);
+  const sameBounds = (a, b) => (
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height
+  );
   windowAnimationTimer = setInterval(() => {
     if (!mainWindow) {
       clearInterval(windowAnimationTimer);
@@ -208,11 +221,17 @@ function animateWindowBounds(targetBounds, duration = 300) {
     for (const key of ['x', 'y', 'width', 'height']) {
       nextBounds[key] = Math.round(startBounds[key] + (targetBounds[key] - startBounds[key]) * eased);
     }
-    mainWindow.setBounds(nextBounds, false);
-    applyWindowShape(windowMode, nextBounds);
+    if (!sameBounds(nextBounds, lastBounds)) {
+      mainWindow.setBounds(nextBounds, false);
+      applyWindowShape(windowMode, nextBounds);
+      lastBounds = nextBounds;
+    }
     if (progress >= 1) {
       clearInterval(windowAnimationTimer);
       windowAnimationTimer = null;
+      if (!sameBounds(targetBounds, lastBounds)) {
+        mainWindow.setBounds(targetBounds, false);
+      }
       applyWindowShape(windowMode, targetBounds);
     }
   }, 16);
@@ -393,7 +412,9 @@ function restoreNormalMode() {
   mainWindow.setMaximumSize(10000, 10000);
   mainWindow.webContents.send('window:mode', { mode: 'normal' });
   applyWindowShape('normal');
-  animateWindowBounds(target, 430);
+  stopWindowAnimation();
+  mainWindow.setBounds(target, false);
+  applyWindowShape('normal', target);
   return true;
 }
 
@@ -679,12 +700,27 @@ function normalizeResourceMode(mode) {
 function publicResourceSettings() {
   const settings = readSettings();
   const mode = normalizeResourceMode(settings.resourceMode);
+  const playbackMode = normalizeResourcePlaybackMode(settings.resourcePlaybackMode);
+  const resourceSources = publicResourceSourcesState();
   return {
     mode,
     label: RESOURCE_MODES[mode].label,
     description: RESOURCE_MODES[mode].description,
     enabled: mode !== 'off',
+    revision: Number(settings.resourceConfigRevision || 0),
+    playbackMode,
+    playbackLabel: PLAYBACK_TRANSPORT_MODES[playbackMode].label,
+    playbackDescription: PLAYBACK_TRANSPORT_MODES[playbackMode].description,
+    sourceCount: resourceSources.sourceCount,
+    builtInSourceCount: resourceSources.builtInCount,
+    customSourceCount: resourceSources.customCount,
+    sources: resourceSources.sources,
     modes: Object.entries(RESOURCE_MODES).map(([value, meta]) => ({
+      value,
+      label: meta.label,
+      description: meta.description
+    })),
+    playbackModes: Object.entries(PLAYBACK_TRANSPORT_MODES).map(([value, meta]) => ({
       value,
       label: meta.label,
       description: meta.description
@@ -695,7 +731,296 @@ function publicResourceSettings() {
 function selectResourceSources(mode) {
   const normalizedMode = normalizeResourceMode(mode);
   if (normalizedMode === 'off') return [];
-  return RESOURCE_SOURCES.filter((source) => source.modes.includes(normalizedMode));
+  return getMergedResourceSources().filter((source) => source.enabled !== false && source.modes.includes(normalizedMode));
+}
+
+function normalizeResourcePlaybackMode(mode) {
+  const value = String(mode || '').trim().toLowerCase();
+  return PLAYBACK_TRANSPORT_MODES[value] ? value : 'auto';
+}
+
+function publicPlaybackModeState() {
+  const settings = readSettings();
+  const mode = normalizeResourcePlaybackMode(settings.resourcePlaybackMode);
+  return {
+    mode,
+    label: PLAYBACK_TRANSPORT_MODES[mode].label,
+    description: PLAYBACK_TRANSPORT_MODES[mode].description,
+    modes: Object.entries(PLAYBACK_TRANSPORT_MODES).map(([value, meta]) => ({
+      value,
+      label: meta.label,
+      description: meta.description
+    }))
+  };
+}
+
+function normalizeResourceSourceApi(raw) {
+  let value = String(raw || '').trim();
+  if (!value) return '';
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value) && /^[\w.-]+(?::\d+)?(?:[/?#]|$)/.test(value)) {
+    value = `https://${value}`;
+  }
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function normalizeResourceSourceName(value, api = '', index = 0) {
+  const fallbackHost = (() => {
+    try {
+      const url = new URL(api);
+      return url.hostname.replace(/^www\./i, '') || '';
+    } catch {
+      return '';
+    }
+  })();
+  const name = String(value || '').trim() || fallbackHost || `自定义源 ${index + 1}`;
+  return name.slice(0, 80);
+}
+
+function normalizeResourceSourceModes(modes) {
+  const rawList = Array.isArray(modes)
+    ? modes
+    : String(modes || '')
+      .split(/[\s,|/]+/)
+      .filter(Boolean);
+  const normalized = rawList
+    .map((mode) => String(mode || '').trim().toLowerCase())
+    .map((mode) => (mode === 'standard' ? 'stable' : mode))
+    .filter((mode) => ['stable', 'movie', 'full'].includes(mode));
+  return normalized.length ? Array.from(new Set(normalized)) : ['stable', 'movie', 'full'];
+}
+
+function resourceSourceKey(name, api, origin = 'custom', index = 0) {
+  const hash = crypto.createHash('sha1').update(`${origin}|${api}`).digest('hex').slice(0, 10);
+  const safeName = String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24) || `source-${index + 1}`;
+  return `${origin}-${safeName}-${hash}`;
+}
+
+function normalizeResourceSourceEntry(entry, index = 0, origin = 'custom') {
+  if (!entry || typeof entry !== 'object') return null;
+  const api = normalizeResourceSourceApi(entry.api || entry.url || entry.endpoint || '');
+  if (!api) return null;
+  const name = normalizeResourceSourceName(entry.name || entry.label || entry.title, api, index);
+  return {
+    key: String(entry.key || entry.id || '').trim() || resourceSourceKey(name, api, origin, index),
+    name,
+    api,
+    modes: normalizeResourceSourceModes(entry.modes || entry.mode || entry.resourceMode),
+    enabled: entry.enabled !== false && entry.disabled !== true,
+    origin,
+    source: origin,
+    note: String(entry.note || '').trim(),
+    importedAt: Number(entry.importedAt || Date.now())
+  };
+}
+
+function getCustomResourceSources(settings = readSettings()) {
+  const custom = Array.isArray(settings.customResourceSources) ? settings.customResourceSources : [];
+  return custom
+    .map((entry, index) => normalizeResourceSourceEntry(entry, index, 'custom'))
+    .filter(Boolean);
+}
+
+function getMergedResourceSources(settings = readSettings()) {
+  const merged = [];
+  const seen = new Set();
+  const pushSource = (source) => {
+    if (!source || !source.api) return;
+    const key = `${source.key || ''}|${source.api}`;
+    if (seen.has(key) || seen.has(source.api)) return;
+    seen.add(key);
+    seen.add(source.api);
+    merged.push(source);
+  };
+
+  for (const source of getCustomResourceSources(settings)) {
+    pushSource(source);
+  }
+  for (const source of RESOURCE_SOURCES) {
+    pushSource(normalizeResourceSourceEntry({
+      ...source,
+      key: source.key,
+      name: source.name,
+      api: source.api,
+      modes: source.modes,
+      enabled: true
+    }, 0, 'builtin'));
+  }
+  return merged;
+}
+
+function publicResourceSource(source = {}) {
+  return {
+    key: source.key || '',
+    name: source.name || '',
+    api: source.api || '',
+    modes: Array.isArray(source.modes) ? source.modes : [],
+    enabled: source.enabled !== false,
+    origin: source.origin || 'builtin',
+    note: source.note || ''
+  };
+}
+
+function publicResourceSourcesState() {
+  const settings = readSettings();
+  const merged = getMergedResourceSources(settings).map(publicResourceSource);
+  const custom = merged.filter((source) => source.origin === 'custom');
+  const builtin = merged.filter((source) => source.origin !== 'custom');
+  return {
+    builtInCount: builtin.length,
+    customCount: custom.length,
+    sourceCount: merged.length,
+    sources: merged
+  };
+}
+
+function touchResourceConfig(settings = readSettings()) {
+  const previous = Number(settings.resourceConfigRevision || 0);
+  settings.resourceConfigRevision = Math.max(Date.now(), previous + 1);
+  return settings;
+}
+
+function normalizeResourceSourcesPayload(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    if (Array.isArray(raw.sources)) return raw.sources;
+    if (raw.name || raw.api || raw.url || raw.endpoint) return [raw];
+  }
+  if (Array.isArray(raw)) return raw;
+
+  const text = String(raw || '').replace(/^\uFEFF/, '').trim();
+  if (!text) return [];
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !line.startsWith('//'))
+    .map((line) => {
+      if (/^[\[{]/.test(line)) {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      }
+
+      const parts = line.includes('|')
+        ? line.split('|')
+        : line.includes('\t')
+          ? line.split('\t')
+          : line.split(/\s{2,}/);
+      if (!parts.length) return null;
+      if (parts.length === 1) {
+        const api = normalizeResourceSourceApi(parts[0]);
+        return api ? { api } : null;
+      }
+      const [name, api, modes, note] = parts.map((part) => String(part || '').trim());
+      const normalizedApi = normalizeResourceSourceApi(api || name);
+      if (!normalizedApi) return null;
+      return {
+        name: api ? name : '',
+        api: normalizedApi,
+        modes: modes || '',
+        note: note || ''
+      };
+    })
+    .filter(Boolean);
+}
+
+async function fetchRemoteResourceSources(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(RESOURCE_TIMEOUT_MS, 7000));
+  try {
+    const response = await session.defaultSession.fetch(url, {
+      signal: controller.signal,
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.0.0'
+      }
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(`外部源拉取失败：${response.status}`);
+      error.code = 'RESOURCE_SOURCE_HTTP_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function importResourceSources(raw) {
+  let payload = raw;
+  const text = String(raw || '').replace(/^\uFEFF/, '').trim();
+  if (!payload || typeof payload === 'string') {
+    if (!text) {
+      const error = new Error('请输入外部源 JSON、分行配置或源配置地址。');
+      error.code = 'INVALID_RESOURCE_SOURCE_CONFIG';
+      throw error;
+    }
+    if (/^https?:\/\//i.test(text) && !text.includes('\n')) {
+      payload = await fetchRemoteResourceSources(text);
+    } else {
+      payload = text;
+    }
+  }
+
+  let entries = [];
+  if (typeof payload === 'string') {
+    const trimmed = payload.replace(/^\uFEFF/, '').trim();
+    if (!trimmed) entries = [];
+    else {
+      try {
+        const parsed = JSON.parse(trimmed);
+        entries = normalizeResourceSourcesPayload(parsed);
+      } catch {
+        entries = normalizeResourceSourcesPayload(trimmed);
+      }
+    }
+  } else {
+    entries = normalizeResourceSourcesPayload(payload);
+  }
+
+  const normalized = entries
+    .map((entry, index) => normalizeResourceSourceEntry(entry, index, 'custom'))
+    .filter(Boolean);
+  const unique = [];
+  const seenApis = new Set();
+  for (const entry of normalized) {
+    if (!entry.api || seenApis.has(entry.api)) continue;
+    seenApis.add(entry.api);
+    unique.push(entry);
+  }
+  if (!unique.length) {
+    const error = new Error('未识别到有效外部源，请检查格式后重试。');
+    error.code = 'INVALID_RESOURCE_SOURCE_CONFIG';
+    throw error;
+  }
+
+  const settings = readSettings();
+  settings.customResourceSources = unique;
+  touchResourceConfig(settings);
+  writeSettings(settings);
+  resourceResponseCache.clear();
+  return publicResourceSettings();
+}
+
+function clearResourceSources() {
+  const settings = readSettings();
+  settings.customResourceSources = [];
+  touchResourceConfig(settings);
+  writeSettings(settings);
+  resourceResponseCache.clear();
+  return publicResourceSettings();
 }
 
 function normalizeCredential(raw) {
@@ -917,7 +1242,7 @@ async function resourceFetchJson(source, params = {}) {
       signal: controller.signal,
       headers: {
         accept: 'application/json, text/plain, */*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/1.0'
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.0.0'
       }
     });
     const text = await response.text();
@@ -1156,7 +1481,7 @@ async function resolveMediaUrl(target) {
       signal: controller.signal,
       headers: {
         accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/1.0',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.0.0',
         referer: `${sourceUrl.origin}/`
       }
     });
@@ -1360,7 +1685,7 @@ async function proxyMediaRequest(req, res) {
   try {
     const upstreamHeaders = {
       accept: req.headers.accept || '*/*',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/1.0',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.0.0',
       referer: `${targetUrl.origin}/`
     };
     if (req.headers.range) upstreamHeaders.range = req.headers.range;
@@ -1588,14 +1913,24 @@ function compactResourceItem(source, item, payload) {
 
 async function hydrateResourceDetail(source, item) {
   if (parsePlayGroups(item).length || !item?.vod_id) return item;
-  for (const ac of ['detail', 'videolist']) {
+  const attempts = ['detail', 'videolist'].map(async (ac) => {
     try {
       const detail = await resourceFetchJson(source, { ac, ids: item.vod_id });
-      const detailItem = Array.isArray(detail.list) ? detail.list[0] : null;
-      if (detailItem) return { ...item, ...detailItem };
+      const detailItem = Array.isArray(detail?.list) ? detail.list[0] : null;
+      if (detailItem) return detailItem;
     } catch {
-      // Ignore detail fallback failures and continue with the search item.
+      // fall through to the other detail probe
     }
+    return null;
+  });
+  try {
+    const detailItem = await Promise.any(attempts.map((attempt) => attempt.then((value) => {
+      if (value) return value;
+      throw new Error('empty');
+    })));
+    if (detailItem) return { ...item, ...detailItem };
+  } catch {
+    // both probes failed or returned empty
   }
   return item;
 }
@@ -1632,7 +1967,7 @@ async function findMovieResources(payload = {}, options = {}) {
   }
 
   const cursor = Math.max(0, Number(options.cursor || 0));
-  const limit = Math.min(4, Math.max(1, Number(options.limit || 2)));
+  const limit = Math.min(4, Math.max(1, Number(options.limit || 3)));
   const batch = allSources.slice(cursor, cursor + limit);
   const settled = await Promise.allSettled(batch.map((source) => searchResourceSource(source, payload)));
   const resources = settled
@@ -1899,10 +2234,23 @@ ipcMain.handle('app:getResourceSettings', () => publicResourceSettings());
 ipcMain.handle('app:saveResourceMode', (_event, mode) => {
   const settings = readSettings();
   settings.resourceMode = normalizeResourceMode(mode);
+  touchResourceConfig(settings);
   writeSettings(settings);
   resourceResponseCache.clear();
   return publicResourceSettings();
 });
+
+ipcMain.handle('app:saveResourcePlaybackMode', (_event, playbackMode) => {
+  const settings = readSettings();
+  settings.resourcePlaybackMode = normalizeResourcePlaybackMode(playbackMode);
+  touchResourceConfig(settings);
+  writeSettings(settings);
+  return publicResourceSettings();
+});
+
+ipcMain.handle('app:importResourceSources', async (_event, payload) => importResourceSources(payload));
+
+ipcMain.handle('app:clearResourceSources', () => clearResourceSources());
 
 ipcMain.handle('app:testConnection', async () => {
   const proxy = await applyProxySetting({ force: true });
