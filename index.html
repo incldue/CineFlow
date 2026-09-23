@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' https://image.tmdb.org data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http: https:; media-src 'self' http: https: blob: data:; worker-src 'self' blob:;"
+      content="default-src 'self'; img-src 'self' https://image.tmdb.org http://127.0.0.1:* data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http: https:; media-src 'self' http: https: blob: data:; worker-src 'self' blob:;"
     />
     <title>CineFlow</title>
   </head>
@@ -54,6 +54,7 @@
 
         <div class="top-actions">
           <button id="refreshBtn" class="ghost-button" type="button" title="刷新推荐">↻</button>
+          <button id="favoritesBtn" class="ghost-button favorites-button" type="button" title="我的收藏">♥ 收藏<span id="favoritesCount" class="favorites-count" hidden></span></button>
           <button id="settingsBtn" class="ghost-button" type="button" title="设置 TMDB API">⚙</button>
         </div>
 
@@ -138,6 +139,20 @@
         </section>
       </main>
 
+      <aside id="favoritesPanel" class="favorites-panel" aria-hidden="true">
+        <button id="favoritesPullBtn" class="favorites-pull-handle" type="button" aria-label="拉出收藏页">
+          <span>›</span>
+          <em>收藏</em>
+        </button>
+        <div class="favorites-content">
+          <div class="favorites-header">
+            <p class="eyebrow">收藏</p>
+            <h3>我的收藏</h3>
+          </div>
+          <div id="favoritesList" class="favorites-list"></div>
+        </div>
+      </aside>
+
       <aside id="detailPanel" class="detail-panel" aria-hidden="true">
         <button id="detailCloseBtn" class="detail-pull-handle" type="button" aria-label="拉出电影/节目介绍页">
           <span>‹</span>
@@ -166,6 +181,8 @@
             </select>
             <label class="settings-label" for="resourcePlaybackModeSelect">资源播放方式</label>
             <select id="resourcePlaybackModeSelect" class="settings-input"></select>
+            <label class="settings-label" for="playbackProxySelect">播放是否走代理</label>
+            <select id="playbackProxySelect" class="settings-input"></select>
             <label class="settings-label" for="resourceSourceInput">自定义外部源导入</label>
             <textarea id="resourceSourceInput" rows="5" spellcheck="false" placeholder="支持 JSON 数组、单行 name|api|modes|note，或直接粘贴配置 URL"></textarea>
             <div class="settings-actions">

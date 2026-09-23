@@ -1,4 +1,5 @@
 ﻿import './styles.css';
+import { createAdFilteringLoader } from './ad-filter.js';
 
 const api = window.cineflow;
 const IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -167,6 +168,11 @@ const dom = {
   islandRestoreLabel: document.querySelector('#islandRestoreBtn .restore-label'),
   refreshBtn: document.querySelector('#refreshBtn'),
   settingsBtn: document.querySelector('#settingsBtn'),
+  favoritesBtn: document.querySelector('#favoritesBtn'),
+  favoritesCount: document.querySelector('#favoritesCount'),
+  favoritesPanel: document.querySelector('#favoritesPanel'),
+  favoritesPullBtn: document.querySelector('#favoritesPullBtn'),
+  favoritesList: document.querySelector('#favoritesList'),
   minBtn: document.querySelector('#minBtn'),
   maxBtn: document.querySelector('#maxBtn'),
   closeBtn: document.querySelector('#closeBtn'),
@@ -192,6 +198,7 @@ const dom = {
   proxyInput: document.querySelector('#proxyInput'),
   resourceModeSelect: document.querySelector('#resourceModeSelect'),
   resourcePlaybackModeSelect: document.querySelector('#resourcePlaybackModeSelect'),
+  playbackProxySelect: document.querySelector('#playbackProxySelect'),
   resourceSourceInput: document.querySelector('#resourceSourceInput'),
   importResourceSourcesBtn: document.querySelector('#importResourceSourcesBtn'),
   clearResourceSourcesBtn: document.querySelector('#clearResourceSourcesBtn'),
@@ -411,6 +418,7 @@ function loadPrefs() {
     return {
       genreWeights: parsed.genreWeights || {},
       likedMovieIds: parsed.likedMovieIds || [],
+      favorites: Array.isArray(parsed.favorites) ? parsed.favorites : [],
       recentSearches: parsed.recentSearches || [],
       clickedMovieIds: parsed.clickedMovieIds || []
     };
@@ -418,6 +426,7 @@ function loadPrefs() {
     return {
       genreWeights: {},
       likedMovieIds: [],
+      favorites: [],
       recentSearches: [],
       clickedMovieIds: []
     };
@@ -470,9 +479,70 @@ function likeMovie(movie) {
     key,
     ...state.prefs.likedMovieIds.filter((id) => id !== key)
   ].slice(0, 50);
+  rememberFavorite(movie);
   addGenreWeight(movie.genreIds, 2.5);
   toast('已加入你的偏好');
   renderPersonalized();
+}
+
+function favoriteSnapshotOf(movie) {
+  const key = contentKeyOf(movie);
+  const cached = state.detailsCache.get(detailCacheKey(movie?.id, mediaTypeOf(movie)))
+    || state.cardMovies.get(key)
+    || {};
+  const field = (name) => movie?.[name] ?? cached[name];
+  const cachedGenreIds = Array.isArray(cached.genres)
+    ? cached.genres.map((genre) => genre.id).filter(Boolean)
+    : [];
+  return {
+    id: movie.id,
+    mediaType: mediaTypeOf(movie),
+    title: field('title') || '未命名',
+    posterPath: field('posterPath') || null,
+    releaseDate: field('releaseDate') || '',
+    voteAverage: Number(field('voteAverage') || 0),
+    genreIds: field('genreIds') || cachedGenreIds || []
+  };
+}
+
+function rememberFavorite(movie) {
+  if (!movie?.id) return;
+  const key = contentKeyOf(movie);
+  state.prefs.favorites = [
+    favoriteSnapshotOf(movie),
+    ...(state.prefs.favorites || []).filter((item) => contentKeyOf(item) !== key)
+  ].slice(0, 100);
+  savePrefs();
+  syncFavoritesButtonCount();
+  if (dom.favoritesPanel?.classList.contains('is-open')) renderFavorites();
+}
+
+function isFavorite(movie) {
+  if (!movie?.id) return false;
+  const key = contentKeyOf(movie);
+  return (state.prefs.favorites || []).some((item) => contentKeyOf(item) === key);
+}
+
+function removeFavorite(key) {
+  state.prefs.favorites = (state.prefs.favorites || []).filter((item) => contentKeyOf(item) !== key);
+  state.prefs.likedMovieIds = (state.prefs.likedMovieIds || []).filter((item) => item !== key);
+  savePrefs({ immediate: true });
+  renderFavorites();
+  syncFavoritesButtonCount();
+  syncDetailFavoriteButton();
+  toast('已取消收藏');
+}
+
+function toggleFavorite(movie) {
+  if (!movie?.id) return false;
+  if (isFavorite(movie)) {
+    removeFavorite(contentKeyOf(movie));
+    return false;
+  }
+  rememberFavorite(movie);
+  syncFavoritesButtonCount();
+  toast('已加入收藏');
+  return true;
 }
 
 function preloadDetails(movieId, mediaType = 'movie') {
@@ -1455,6 +1525,51 @@ function renderResourcePlaybackModeOptions(resources = state.resourceSettings, f
   dom.resourcePlaybackModeSelect.dataset.synced = '1';
 }
 
+function renderPlaybackProxyOptions(info) {
+  const select = dom.playbackProxySelect;
+  if (!select || !info || select.dataset.synced === '1') return;
+  const modes = Array.isArray(info.modes) ? info.modes : [];
+  if (!modes.length) return;
+  select.innerHTML = modes
+    .map((mode) => `<option value="${escapeHtml(mode.value)}" title="${escapeHtml(mode.description || '')}">${escapeHtml(mode.label)}</option>`)
+    .join('');
+  select.value = modes.some((mode) => mode.value === info.mode) ? info.mode : 'follow';
+  select.dataset.synced = '1';
+}
+
+async function loadPlaybackProxyMode() {
+  if (!api.getPlaybackProxyMode) return;
+  try {
+    const info = await api.getPlaybackProxyMode();
+    state.playbackProxyMode = info?.mode || 'follow';
+    if (dom.playbackProxySelect) dom.playbackProxySelect.dataset.synced = '0';
+    renderPlaybackProxyOptions(info);
+  } catch {
+    // keep previous preference
+  }
+}
+
+async function savePlaybackProxyMode(mode) {
+  if (!api.savePlaybackProxyMode) return;
+  try {
+    const info = await api.savePlaybackProxyMode(mode);
+    state.playbackProxyMode = info?.mode || mode || 'follow';
+    renderPlaybackProxyOptions(info || { mode: state.playbackProxyMode, modes: dom.playbackProxySelect ? [] : [] });
+    const labels = { follow: '跟随全局代理', proxy: '播放走代理', direct: '不走代理（DoH 直连）' };
+    toast(`播放代理偏好已更新：${labels[state.playbackProxyMode] || state.playbackProxyMode}`);
+  } catch {
+    toast('保存播放代理偏好失败');
+  }
+}
+
+if (api.onPlaybackProxyState) {
+  api.onPlaybackProxyState((payload) => {
+    if (!state.player?.open) return;
+    if (payload?.state === 'down') toast('检测到代理断开 · 播放已切换直连上行，保持不中断');
+    else if (payload?.state === 'up') toast('代理连接已恢复 · 播放上行切回代理');
+  });
+}
+
 function renderResourceSourceInput(resources = state.resourceSettings, force = false) {
   if (!dom.resourceSourceInput || (!force && dom.resourceSourceInput.dataset.synced === '1')) return;
   const sources = Array.isArray(resources?.sources) ? resources.sources.filter((source) => source.origin === 'custom') : [];
@@ -2026,6 +2141,119 @@ function closeDetailsFromBlankArea(event) {
   closeDetails();
 }
 
+function isFavoritesOpen() {
+  return Boolean(dom.favoritesPanel?.classList.contains('is-open'));
+}
+
+function syncFavoritesButtonCount() {
+  if (!dom.favoritesCount) return;
+  const count = (state.prefs.favorites || []).length;
+  dom.favoritesCount.textContent = count > 0 ? String(count) : '';
+  dom.favoritesCount.hidden = count <= 0;
+}
+
+function renderFavorites() {
+  if (!dom.favoritesList) return;
+  const favorites = state.prefs.favorites || [];
+  if (!favorites.length) {
+    dom.favoritesList.innerHTML = '<div class="favorites-empty">还没有收藏。在影视介绍页点击“加入收藏”后，内容会出现在这里。</div>';
+    return;
+  }
+  dom.favoritesList.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  for (const movie of favorites) {
+    fragment.appendChild(createFavoriteItem(movie));
+  }
+  dom.favoritesList.appendChild(fragment);
+}
+
+function createFavoriteItem(movie) {
+  const row = document.createElement('div');
+  row.className = 'favorite-item';
+  row.dataset.favoriteKey = contentKeyOf(movie);
+  const poster = imageUrl(movie.posterPath, COMPACT_POSTER_SIZE);
+  const meta = [yearOf(movie), movie.mediaType === 'tv' ? '节目' : '电影'].filter(Boolean).join(' · ');
+  row.innerHTML = `
+    <div class="favorite-poster">
+      ${poster ? `<img src="${poster}" alt="${escapeHtml(movie.title)} 海报" loading="lazy" decoding="async" />` : '<div class="poster-fallback">无</div>'}
+    </div>
+    <div class="favorite-info">
+      <h4>${escapeHtml(movie.title)}</h4>
+      <p>${escapeHtml(meta)}</p>
+    </div>
+    <div class="favorite-actions">
+      <button type="button" class="favorite-open ghost-button" title="查看介绍">查看</button>
+      <button type="button" class="favorite-remove ghost-button" title="取消收藏" aria-label="取消收藏">×</button>
+    </div>
+  `;
+  return row;
+}
+
+let favoritesRippleTimer = null;
+
+function startFavoritesRipple(direction = 'open') {
+  if (!dom.favoritesPanel) return;
+  window.clearTimeout(favoritesRippleTimer);
+  dom.favoritesPanel.classList.remove('is-rippling-open', 'is-rippling-close');
+  void dom.favoritesPanel.offsetWidth;
+  dom.favoritesPanel.classList.add(direction === 'close' ? 'is-rippling-close' : 'is-rippling-open');
+  const rippleCleanupDelay = direction === 'close' ? 640 : 780;
+  favoritesRippleTimer = window.setTimeout(() => {
+    dom.favoritesPanel?.classList.remove('is-rippling-open', 'is-rippling-close');
+  }, rippleCleanupDelay);
+}
+
+function openFavorites() {
+  if (!dom.favoritesPanel) return;
+  renderFavorites();
+  startFavoritesRipple('open');
+  dom.favoritesPanel.classList.add('is-open');
+  dom.favoritesPanel.setAttribute('aria-hidden', 'false');
+  dom.favoritesBtn?.classList.add('is-active');
+}
+
+function closeFavorites() {
+  if (!dom.favoritesPanel) return;
+  if (dom.favoritesPanel.classList.contains('is-open')) {
+    startFavoritesRipple('close');
+  } else {
+    dom.favoritesPanel.classList.remove('is-rippling-open', 'is-rippling-close');
+  }
+  dom.favoritesPanel.classList.remove('is-open');
+  dom.favoritesPanel.setAttribute('aria-hidden', 'true');
+  dom.favoritesBtn?.classList.remove('is-active');
+}
+
+function toggleFavoritesPanel() {
+  if (isFavoritesOpen()) {
+    closeFavorites();
+    return;
+  }
+  openFavorites();
+}
+
+function handleFavoriteItemClick(event) {
+  const row = event.target instanceof Element ? event.target.closest('.favorite-item') : null;
+  if (!row) return;
+  const key = row.dataset.favoriteKey;
+  if (event.target instanceof Element && event.target.closest('.favorite-remove')) {
+    removeFavorite(key);
+    return;
+  }
+  if (event.target instanceof Element && event.target.closest('.favorite-open')) {
+    const movie = (state.prefs.favorites || []).find((item) => contentKeyOf(item) === key);
+    if (movie) openDetails(movie.id, movie);
+  }
+}
+
+function syncDetailFavoriteButton() {
+  const button = dom.detailContent?.querySelector('#detailFavoriteBtn');
+  if (!button) return;
+  const favorite = isFavorite({ id: state.lastDetailMovieId, mediaType: state.lastDetailMediaType });
+  button.classList.toggle('is-active', favorite);
+  button.textContent = favorite ? '已收藏' : '加入收藏';
+}
+
 function detailSkeleton(movie) {
   const label = mediaDetailLabelOf(movie);
   return `
@@ -2079,6 +2307,7 @@ function renderDetails(details) {
         <p class="overview">${escapeHtml(details.overview || '暂无简介。')}</p>
         <div class="detail-actions">
           <button id="detailLikeBtn" class="primary-button" type="button">加入偏好</button>
+          <button id="detailFavoriteBtn" class="secondary-button detail-favorite-btn" type="button">加入收藏</button>
           ${details.homepage ? '<button id="homepageBtn" class="secondary-button" type="button">打开官网</button>' : ''}
           ${details.videos?.[0] ? '<button id="trailerBtn" class="secondary-button" type="button">预告片</button>' : ''}
         </div>
@@ -2121,6 +2350,19 @@ function renderDetails(details) {
       genreIds: (details.genres || []).map((genre) => genre.id)
     });
   });
+  dom.detailContent.querySelector('#detailFavoriteBtn')?.addEventListener('click', () => {
+    toggleFavorite({
+      id: details.id,
+      mediaType: mediaTypeOf(details),
+      title: details.title,
+      posterPath: details.posterPath,
+      releaseDate: details.releaseDate,
+      voteAverage: details.voteAverage,
+      genreIds: (details.genres || []).map((genre) => genre.id)
+    });
+    syncDetailFavoriteButton();
+  });
+  syncDetailFavoriteButton();
   dom.detailContent.querySelector('#homepageBtn')?.addEventListener('click', () => api.openExternal(details.homepage));
   dom.detailContent.querySelector('#trailerBtn')?.addEventListener('click', () => api.openExternal(`https://www.youtube.com/watch?v=${details.videos[0].key}`));
 
@@ -2949,7 +3191,8 @@ async function startPlayerTransport(loadId, mediaKind, playbackUrl) {
           nudgeMaxRetry: 3,
           manifestLoadingTimeOut: 8500,
           levelLoadingTimeOut: 8500,
-          fragLoadingTimeOut: 18000
+          fragLoadingTimeOut: 18000,
+          pLoader: createAdFilteringLoader(HlsEngine) || HlsEngine.DefaultConfig?.pLoader
         });
         playerHls.on(HlsEngine.Events.ERROR, (_event, data) => {
           handlePlayerHlsError(loadId, data).catch(() => {});
@@ -3159,6 +3402,12 @@ async function openResourcePlayer(payload = {}) {
     loadId,
     seeking: false
   };
+
+  // Playback proxy preference: force the local media proxy so the main process
+  // can apply the chosen upstream (proxy / DoH-direct) for every segment.
+  if (state.playbackProxyMode === 'proxy' || state.playbackProxyMode === 'direct') {
+    state.player.transport = 'proxy';
+  }
 
   resetPlayerError();
   showResourcePlayerModal();
@@ -3979,6 +4228,11 @@ function bindEvents() {
   dom.dailyDetailBtn.addEventListener('click', () => state.daily && openDetails(state.daily.id, state.daily));
   dom.dailyLikeBtn.addEventListener('click', () => state.daily && likeMovie(state.daily));
   dom.detailCloseBtn.addEventListener('click', toggleDetailPanel);
+  dom.favoritesBtn?.addEventListener('click', toggleFavoritesPanel);
+  dom.favoritesPullBtn?.addEventListener('click', toggleFavoritesPanel);
+  dom.favoritesList?.addEventListener('click', handleFavoriteItemClick);
+  syncFavoritesButtonCount();
+  renderFavorites();
   dom.settingsBtn.addEventListener('click', openSettings);
   dom.settingsCloseBtn.addEventListener('click', closeSettings);
   dom.saveSettingsBtn.addEventListener('click', saveSettings);
@@ -3986,6 +4240,11 @@ function bindEvents() {
   dom.clearSettingsBtn.addEventListener('click', clearSettings);
   dom.importResourceSourcesBtn?.addEventListener('click', importResourceSources);
   dom.clearResourceSourcesBtn?.addEventListener('click', clearResourceSources);
+  dom.settingsBtn.addEventListener('click', () => { loadPlaybackProxyMode(); });
+  dom.playbackProxySelect?.addEventListener('change', () => {
+    savePlaybackProxyMode(dom.playbackProxySelect.value || 'follow');
+  });
+  loadPlaybackProxyMode();
   dom.refreshBtn.addEventListener('click', async () => {
     state.railCache.clear();
     state.railCachePending.clear();
@@ -3998,6 +4257,13 @@ function bindEvents() {
   });
 
   document.addEventListener('pointerdown', closeDetailsFromBlankArea);
+  document.addEventListener('pointerdown', (event) => {
+    if (!isFavoritesOpen()) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('.favorites-panel, #favoritesBtn, .settings-card, .player-modal, .window-controls')) return;
+    closeFavorites();
+  });
 
   document.addEventListener('keydown', (event) => {
     if (isIslandLikeMode() && (event.key === 'Escape' || (event.altKey && event.key === 'Enter'))) {
@@ -4014,6 +4280,7 @@ function bindEvents() {
       }
       closeDetails();
       closeSettings();
+      closeFavorites();
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();

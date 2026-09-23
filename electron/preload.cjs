@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld('cineflow', {
   findMovieResources: (payload, options) => ipcRenderer.invoke('resources:findMovie', payload, options),
   resolveMediaUrl: (url) => ipcRenderer.invoke('player:resolveMediaUrl', url),
   getMediaProxyUrl: (url) => ipcRenderer.invoke('player:getMediaProxyUrl', url),
+  getPlaybackProxyMode: () => ipcRenderer.invoke('player:getPlaybackProxyMode'),
+  savePlaybackProxyMode: (mode) => ipcRenderer.invoke('player:setPlaybackProxyMode', mode),
+  getMetadataStatus: () => ipcRenderer.invoke('meta:getStatus'),
+  onPlaybackProxyState: (callback) => {
+    ipcRenderer.on('playback:proxy-state', (_event, payload) => callback?.(payload));
+  },
   minimize: () => ipcRenderer.invoke('window:minimize'),
   enterIsland: (height) => ipcRenderer.invoke('window:enterIsland', height),
   expandIsland: (height) => ipcRenderer.invoke('window:expandIsland', height),

@@ -4,6 +4,10 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { Readable } = require('node:stream');
+const { createDohResolver } = require('./doh.cjs');
+const { createMetaServer } = require('./meta-server.cjs');
+const { createPlaybackProxyGuard } = require('./proxy-monitor.cjs');
+const { filterAdsFromM3u8 } = require('./ad-filter.cjs');
 
 try {
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -119,6 +123,50 @@ const tmdbResponseCache = new Map();
 const tmdbInFlight = new Map();
 const resourceResponseCache = new Map();
 const mediaResolveCache = new Map();
+let dohResolver = null;
+let metaServer = null;
+let playbackProxyGuard = null;
+
+function initNetworkAcceleration() {
+  try {
+    dohResolver = createDohResolver({
+      cacheDir: path.join(app.getPath('userData'), 'cineflow-meta')
+    });
+    metaServer = createMetaServer({
+      app,
+      session,
+      doh: dohResolver,
+      getProxySetting,
+      readSettings,
+      getCredential
+    });
+    metaServer.install().catch(() => {});
+    playbackProxyGuard = createPlaybackProxyGuard({
+      session,
+      doh: dohResolver,
+      getProxySetting,
+      readSettings,
+      writeSettings,
+      mediaHelpers: {
+        isLikelyM3u8Response,
+        isLikelyMpdResponse,
+        rewriteM3u8Manifest,
+        rewriteMpdManifest,
+        mediaProxyHeaders
+      },
+      sendToRenderer: (channel, payload) => {
+        try {
+          mainWindow?.webContents?.send(channel, payload);
+        } catch {
+          // window may be closed
+        }
+      }
+    });
+    playbackProxyGuard.start();
+  } catch {
+    // network acceleration is best-effort; the original request path keeps working
+  }
+}
 
 function canUseNativeShape() {
   return Boolean(
@@ -942,7 +990,7 @@ async function fetchRemoteResourceSources(url) {
       signal: controller.signal,
       headers: {
         accept: 'application/json, text/plain, */*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.0.0'
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0'
       }
     });
     const text = await response.text();
@@ -1242,7 +1290,7 @@ async function resourceFetchJson(source, params = {}) {
       signal: controller.signal,
       headers: {
         accept: 'application/json, text/plain, */*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.0.0'
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0'
       }
     });
     const text = await response.text();
@@ -1481,7 +1529,7 @@ async function resolveMediaUrl(target) {
       signal: controller.signal,
       headers: {
         accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.0.0',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0',
         referer: `${sourceUrl.origin}/`
       }
     });
@@ -1595,6 +1643,7 @@ function rewriteM3u8AttributeUris(line, baseUrl) {
 }
 
 function rewriteM3u8Manifest(text, baseUrl) {
+  text = filterAdsFromM3u8(text);
   return String(text || '')
     .split(/\r?\n/)
     .map((line) => {
@@ -1679,13 +1728,23 @@ async function proxyMediaRequest(req, res) {
   }
 
   await applyProxySetting().catch(() => {});
+
+  // Playback upstream fast-path: used when the user opted out of proxy for
+  // playback, or when the proxy-monitor detected an upstream proxy outage.
+  if (playbackProxyGuard && playbackProxyGuard.shouldUseDirectUpstream()) {
+    const handledDirectUpstream = await playbackProxyGuard
+      .handleDirectUpstream(req, res, targetUrl)
+      .catch(() => false);
+    if (handledDirectUpstream) return;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MEDIA_PROXY_TIMEOUT_MS);
 
   try {
     const upstreamHeaders = {
       accept: req.headers.accept || '*/*',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.0.0',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.2.0',
       referer: `${targetUrl.origin}/`
     };
     if (req.headers.range) upstreamHeaders.range = req.headers.range;
@@ -2175,6 +2234,7 @@ function createWindow() {
 app.whenReady().then(() => {
   startMediaProxyServer().catch(() => {});
   createWindow();
+  initNetworkAcceleration();
   applyProxySetting({ force: true }).catch(() => {});
 
   app.on('activate', () => {
@@ -2474,6 +2534,12 @@ ipcMain.handle('player:getMediaProxyUrl', async (_event, url) => {
 });
 
 ipcMain.handle('player:resolveMediaUrl', async (_event, url) => resolveMediaUrl(url));
+
+ipcMain.handle('player:getPlaybackProxyMode', () => playbackProxyGuard?.getStatus() ?? { mode: 'follow', modes: [], link: 'none' });
+
+ipcMain.handle('player:setPlaybackProxyMode', (_event, mode) => playbackProxyGuard?.setMode(mode) ?? null);
+
+ipcMain.handle('meta:getStatus', () => metaServer?.getStatus() ?? null);
 
 ipcMain.handle('window:minimize', () => enterIslandMode());
 ipcMain.handle('window:enterIsland', (_event, height) => enterIslandMode(Number(height) || 72));
