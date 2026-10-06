@@ -12,7 +12,8 @@
         "build": "vite build",
         "build:win": "npm run build && electron-builder --win nsis --config.win.signAndEditExecutable=false --publish never",
         "build:win:dir": "npm run build && electron-builder --win dir --config.win.signAndEditExecutable=false --publish never",
-        "pack:portable": "npm run build && electron-builder --win portable --config.win.signAndEditExecutable=false --publish never"
+        "pack:portable": "npm run build && electron-builder --win portable --config.win.signAndEditExecutable=false --publish never",
+        "build:mac": "npm run build && electron-builder --mac --publish never"
     },
     "build": {
         "appId": "com.debu8ger.cineflow",
@@ -51,6 +52,35 @@
             "installerIcon": "build/icon.ico",
             "uninstallerIcon": "build/icon.ico",
             "artifactName": "CineFlow-${version}-Setup.${ext}"
+        },
+        "mac": {
+            "icon": "build/icon.icns",
+            "category": "public.app-category.entertainment",
+            "hardenedRuntime": false,
+            "gatekeeperAssess": false,
+            "target": [
+                {
+                    "target": "dmg",
+                    "arch": [
+                        "arm64",
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "zip",
+                    "arch": [
+                        "arm64",
+                        "x64"
+                    ]
+                }
+            ],
+            "artifactName": "CineFlow-${version}-${arch}.${ext}"
+        },
+        "dmg": {
+            "window": {
+                "width": 540,
+                "height": 380
+            }
         }
     },
     "dependencies": {

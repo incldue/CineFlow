@@ -937,10 +937,46 @@ function touchResourceConfig(settings = readSettings()) {
   return settings;
 }
 
+function isTvBoxSiteEntry(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!String(value.api || '').trim()) return false;
+  // TVBox 站点的决定性特征是 type 字段；普通 {name, api} 条目没有 type，不能误判
+  return value.type !== undefined;
+}
+
+function tvBoxSiteToSourceEntry(site) {
+  const api = String(site.api || '').trim();
+  if (!/^https?:\/\//i.test(api) || /^csp_/i.test(api)) return null;
+  // 只有 type=1（JSON / 苹果 CMS 风格接口）能直接用；
+  // csp_*/jar/spider 需要 TVBox 解析引擎，xml（type=0）不是 JSON，一律跳过；
+  // 没写 type 的条目按普通源放行，避免丢数据
+  const type = site.type === undefined ? '' : String(site.type).trim();
+  if (type !== '' && type !== '1') return null;
+  return { name: site.name || site.key || '', api };
+}
+
+function extractTvBoxSites(raw) {
+  const sites = Array.isArray(raw) ? raw : raw?.sites;
+  if (!Array.isArray(sites) || !sites.length) return null;
+  // 至少有一条像 TVBox 站点才按 TVBox 解析，避免误伤普通数组
+  if (!sites.some(isTvBoxSiteEntry)) return null;
+  const entries = sites.map(tvBoxSiteToSourceEntry).filter(Boolean);
+  if (!entries.length) {
+    const error = new Error('TVBox 配置中没有可用的 type=1 JSON 接口（spider/jar 及 xml 源暂不支持）。');
+    error.code = 'INVALID_RESOURCE_SOURCE_CONFIG';
+    throw error;
+  }
+  return entries;
+}
+
 function normalizeResourceSourcesPayload(raw) {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    if (Array.isArray(raw.sources)) return raw.sources;
-    if (raw.name || raw.api || raw.url || raw.endpoint) return [raw];
+  if (raw && typeof raw === 'object') {
+    const tvBoxEntries = extractTvBoxSites(raw);
+    if (tvBoxEntries) return tvBoxEntries;
+    if (!Array.isArray(raw)) {
+      if (Array.isArray(raw.sources)) return raw.sources;
+      if (raw.name || raw.api || raw.url || raw.endpoint) return [raw];
+    }
   }
   if (Array.isArray(raw)) return raw;
 
@@ -953,7 +989,9 @@ function normalizeResourceSourcesPayload(raw) {
     .map((line) => {
       if (/^[\[{]/.test(line)) {
         try {
-          return JSON.parse(line);
+          const parsed = JSON.parse(line);
+          if (isTvBoxSiteEntry(parsed)) return tvBoxSiteToSourceEntry(parsed);
+          return parsed;
         } catch {
           return null;
         }
