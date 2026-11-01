@@ -12334,3 +12334,1541 @@ body.cf25-detail-lift .cf25-hub {
 @media (prefers-reduced-motion: reduce) {
   .cf25-group { transition: none; }
 }
+
+
+/* ===== cf29 补丁（3.4.8 第一轮）：悬停上浮被裁修复 + Apple tvOS 焦点 / 视差 ===== */
+
+/* ---- 1. 修复：首页「根据你的喜好推荐」「正在热映 · 高分片单」海报上沿被裁 ----
+
+   .movie-rail 是横向滚动容器（overflow-x: auto），按 CSS 规范另一轴由 visible 计算成 auto，
+   于是它同时是个纵向裁剪盒；实测 padding-top 只有 2px，而 .movie-card:hover 会 translateY(-7px)
+   并 scale(1.018)（卡片高 274px，上下各涨约 2.5px），合计超出上沿 6.65px —— 海报顶部就这么被切掉了。
+
+   修法：把裁剪盒自己的顶部内边距让出来（16px 足够覆盖 上浮 7px + 缩放 2.5px + 阴影溢色），
+   再用等量负外边距抵消，卡片视觉位置与版式间距完全不变。 */
+.movie-rail {
+  padding-top: 16px;
+  margin-top: -14px;
+  scroll-padding-top: 16px;
+}
+
+/* 展开态（挂载式网格）同样受益：首行悬停不再贴边被切 */
+.movie-rail.is-expanded {
+  padding-top: 16px;
+}
+
+/* ---- 2. Apple tvOS 焦点：被指向的那张卡抬升为唯一视觉锚点 ----
+
+   tvOS 的焦点模型是「整排静止、只有一张浮起来」，不是一个正方形在缩放。所以这里：
+     · 位移换成负 Y（浮起）而不是等比放大，避免行内互相挤压；
+     · 抬 z-index 让它压住左右邻居（.movie-rail 自己有 contain: layout paint，
+       邻居同处一个层叠上下文，z-index 生效且不会溢出到页面其它部分）；
+     · 阴影从「贴地」换成「离地」：更远、更散、更淡；
+     · 亮度随 --cf-fz（指针离中心的接近度）微调，中心最亮，边缘回落。 */
+.movie-rail .movie-card,
+.cf3-grid .movie-card {
+  --cf-fx: 0;
+  --cf-fy: 0;
+  --cf-fpx: 0px;
+  --cf-fpy: 0px;
+  --cf-fz: 0;
+  transition:
+    transform 520ms var(--cf-motion-spring),
+    box-shadow 420ms var(--cf-motion-spring),
+    border-color 260ms ease,
+    background 260ms ease,
+    filter 320ms ease;
+}
+
+.movie-rail .movie-card:hover,
+.movie-rail .movie-card:focus-visible,
+.cf3-grid .movie-card:hover,
+.cf3-grid .movie-card:focus-visible {
+  z-index: 3;
+  transform: translate3d(0, -7px, 0) scale(1.045);
+  border-color: rgba(var(--champagne-rgb), 0.42);
+  box-shadow:
+    0 30px 68px rgba(0, 0, 0, 0.46),
+    0 10px 26px rgba(0, 0, 0, 0.30),
+    0 0 42px rgba(var(--champagne-rgb), calc(0.06 + var(--cf-fz) * 0.14)),
+    inset 0 1px 0 rgba(255, 246, 226, 0.14);
+  filter: brightness(calc(1 + var(--cf-fz) * 0.045));
+}
+
+/* ---- 3. Apple tvOS 视差：卡片内部按层分离 ----
+
+   海报本体（img）逆向小幅位移 + 略微放大，制造"背景比卡片更远"的读数；
+   前景的描边与顶光跟着指针走（--cf-fx / --cf-fy）。三层速率不同才是视差，
+   同速率只会整体平移。 */
+.movie-rail .movie-card .poster-frame,
+.cf3-grid .movie-card .poster-frame {
+  isolation: isolate;
+}
+
+.movie-rail .movie-card .poster-frame img,
+.cf3-grid .movie-card .poster-frame img {
+  /* 静止时只留一点点余量，供悬停时的视差位移吃掉，不预先放大画面 */
+  transform: translate3d(0, 0, 0) scale(1.03);
+  transition: transform 560ms var(--cf-motion-spring);
+  will-change: transform;
+}
+
+/* 前景：一道跟手的环形柔光，模拟 tvOS 的焦点高光 */
+.movie-rail .movie-card .poster-frame::after,
+.cf3-grid .movie-card .poster-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(
+      120% 90% at calc(50% + var(--cf-fx) * 26%) calc(50% + var(--cf-fy) * 26%),
+      rgba(255, 255, 255, 0.20),
+      rgba(255, 255, 255, 0.04) 38%,
+      transparent 66%
+    );
+  mix-blend-mode: screen;
+  transition: opacity 380ms ease;
+  z-index: 2;
+}
+
+.movie-rail .movie-card:hover .poster-frame::after,
+.movie-rail .movie-card:focus-visible .poster-frame::after,
+.cf3-grid .movie-card:hover .poster-frame::after,
+.cf3-grid .movie-card:focus-visible .poster-frame::after {
+  opacity: calc(0.35 + var(--cf-fz) * 0.5);
+}
+
+/* 内描边跟着指针反向偏一点 —— 比顶光再慢一档，形成第三层 */
+.movie-rail .movie-card.is-focus-lit .poster-frame,
+.cf3-grid .movie-card.is-focus-lit .poster-frame {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, calc(0.10 + var(--cf-fz) * 0.16)),
+    inset calc(var(--cf-fx) * -3px) calc(var(--cf-fy) * -3px) 18px rgba(0, 0, 0, 0.22);
+}
+
+/* ---- 4. Apple tvOS 邻位让位：焦点卡左右两张轻推开，形成"呼吸" ----
+
+   tvOS 只推动紧邻的两张，不是把整排推开，所以用相邻兄弟 + :has 精确选取。 */
+.movie-rail .movie-card:hover + .movie-card,
+.movie-rail .movie-card:focus-visible + .movie-card {
+  transform: translate3d(5px, 0, 0) scale(0.994);
+}
+
+.movie-rail .movie-card:has(+ .movie-card:hover),
+.movie-rail .movie-card:has(+ .movie-card:focus-visible) {
+  transform: translate3d(-5px, 0, 0) scale(0.994);
+}
+
+/* 搜索跳转/键盘导航时也能看到同一个焦点语义 */
+.movie-rail .movie-card:focus-visible,
+.cf3-grid .movie-card:focus-visible {
+  outline: 1px solid rgba(var(--champagne-rgb), 0.5);
+  outline-offset: 3px;
+}
+
+/* ---- 5. 降级：偏好减弱动效 / 已因掉帧被节流时，回到无位移的静态表现 ---- */
+@media (prefers-reduced-motion: reduce) {
+  .movie-rail {
+    padding-top: 16px;
+    margin-top: -14px;
+  }
+
+  .movie-rail .movie-card:hover,
+  .movie-rail .movie-card:focus-visible,
+  .cf3-grid .movie-card:hover,
+  .cf3-grid .movie-card:focus-visible {
+    transform: none;
+    filter: none;
+  }
+
+  .movie-rail .movie-card .poster-frame img,
+  .cf3-grid .movie-card .poster-frame img,
+  .movie-rail .movie-card:hover + .movie-card,
+  .movie-rail .movie-card:has(+ .movie-card:hover) {
+    transform: none;
+    transition: none;
+  }
+
+  .movie-rail .movie-card .poster-frame::after,
+  .cf3-grid .movie-card .poster-frame::after {
+    display: none;
+  }
+}
+
+body.is-motion-throttled .movie-rail .movie-card .poster-frame img {
+  transform: none;
+  transition: none;
+}
+
+body.is-motion-throttled .movie-rail .movie-card:hover,
+body.is-motion-throttled .movie-rail .movie-card:focus-visible,
+body.is-motion-throttled .cf3-grid .movie-card:hover,
+body.is-motion-throttled .cf3-grid .movie-card:focus-visible {
+  filter: none;
+}
+
+
+/* ---- 6. 覆盖基线里豆瓣封面图的静止规则 ----
+
+   基线为「豆瓣封面不要二次缩放」写死了 .movie-card[data-cf8-douban]:hover .cf8-poster-loaded
+   { transform: none }（特异性 0,4,0），会把上面第 3 条的视差位移一起吃掉。
+   这里用 (0,5,1) 的选择器显式接管：视差位移照旧，只是基准缩放从 1.085 收到 1.05，
+   因为豆瓣封面本身带内边距，放大太多会露出白边。 */
+.movie-rail .movie-card:hover .poster-frame img,
+.movie-rail .movie-card:hover .poster-frame img.is-loaded,
+.movie-rail .movie-card:hover .poster-frame img.cf8-poster-loaded,
+.movie-rail .movie-card:focus-visible .poster-frame img,
+.movie-rail .movie-card:focus-visible .poster-frame img.is-loaded,
+.movie-rail .movie-card:focus-visible .poster-frame img.cf8-poster-loaded,
+.cf3-grid .movie-card:hover .poster-frame img,
+.cf3-grid .movie-card:hover .poster-frame img.is-loaded,
+.cf3-grid .movie-card:hover .poster-frame img.cf8-poster-loaded,
+.cf3-grid .movie-card:focus-visible .poster-frame img,
+.cf3-grid .movie-card:focus-visible .poster-frame img.is-loaded,
+.cf3-grid .movie-card:focus-visible .poster-frame img.cf8-poster-loaded {
+  transform:
+    translate3d(calc(var(--cf-fpx) * 1.35), calc(var(--cf-fpy) * 1.35), 0)
+    scale(1.085);
+  transition: transform 560ms var(--cf-motion-spring);
+}
+
+.movie-rail .movie-card:hover .poster-frame img.cf8-poster-loaded,
+.movie-rail .movie-card:focus-visible .poster-frame img.cf8-poster-loaded,
+.cf3-grid .movie-card:hover .poster-frame img.cf8-poster-loaded,
+.cf3-grid .movie-card:focus-visible .poster-frame img.cf8-poster-loaded {
+  transform:
+    translate3d(calc(var(--cf-fpx) * 1.35), calc(var(--cf-fpy) * 1.35), 0)
+    scale(1.05);
+}
+
+/* 分类片库的网格密度更高，位移量按比例收一点，避免行间打架 */
+.cf3-grid .movie-card:hover,
+.cf3-grid .movie-card:focus-visible {
+  transform: translate3d(0, -5px, 0) scale(1.038);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .movie-rail .movie-card:hover .poster-frame img,
+  .movie-rail .movie-card:hover .poster-frame img.is-loaded,
+  .movie-rail .movie-card:hover .poster-frame img.cf8-poster-loaded,
+  .cf3-grid .movie-card:hover .poster-frame img,
+  .cf3-grid .movie-card:hover .poster-frame img.is-loaded,
+  .cf3-grid .movie-card:hover .poster-frame img.cf8-poster-loaded {
+    transform: none;
+    transition: none;
+  }
+}
+
+
+/* ===== cf30 补丁（3.4.8 · 动效扩容）：只加不砍，既有动效一行未改 =====
+ *
+ * 原则：
+ *   1. 所有新增动画只动 transform / opacity / filter —— 合成器能独立处理，不重排不重绘；
+ *   2. 既有 27 处 prefers-reduced-motion 块、body.is-motion-throttled 逻辑、520ms/420ms/560ms
+ *      的既有过渡时长、74 处 backdrop-filter 半径档，全部原样保留；
+ *   3. 新增动效复用同一套令牌，观感统一。
+ */
+
+@property --cf30-progress {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+:root {
+  /* 循环族曲线（recent.design 用 cubic-bezier(.65,0,.35,1) 做循环动画） */
+  --cf30-loop: cubic-bezier(0.65, 0, 0.35, 1);
+  /* 微交互曲线：快出慢收，指针反馈要"跟手" */
+  --cf30-decel: cubic-bezier(0.2, 0, 0, 1);
+  --cf30-decel-dur: 560ms;
+}
+
+/* ============================================================
+ * A1 · 骨架屏三重光（原 shimmer 保留在基线，这里叠两层 + 底色呼吸）
+ * ============================================================ */
+.skeleton div,
+.skeleton span,
+.skeleton small,
+.skeleton-detail .detail-poster,
+.skeleton-detail .detail-info p {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton div::after,
+.skeleton span::after,
+.skeleton small::after,
+.skeleton-detail .detail-poster::after,
+.skeleton-detail .detail-info p::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.17) 50%, transparent 80%);
+  transform: translate3d(-120%, 0, 0);
+  animation: cf30SweepA 1.25s var(--cf30-loop) infinite;
+  will-change: transform;
+}
+
+.skeleton div::before,
+.skeleton span::before,
+.skeleton small::before,
+.skeleton-detail .detail-poster::before,
+.skeleton-detail .detail-info p::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(80deg, transparent 30%, rgba(var(--champagne-rgb), 0.13) 55%, transparent 78%);
+  transform: translate3d(120%, 0, 0);
+  animation: cf30SweepB 1.9s var(--cf30-loop) infinite;
+  will-change: transform;
+}
+
+.skeleton {
+  animation: cf30Breath 3.4s ease-in-out infinite alternate;
+}
+
+@keyframes cf30SweepA {
+  to {
+    transform: translate3d(120%, 0, 0);
+  }
+}
+
+@keyframes cf30SweepB {
+  to {
+    transform: translate3d(-120%, 0, 0);
+  }
+}
+
+@keyframes cf30Breath {
+  from {
+    opacity: 0.92;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ============================================================
+ * A2 · 海报 blur-up（在既有 opacity 淡入之上叠一层模糊收敛）
+ * ============================================================ */
+.poster-frame img {
+  filter: blur(14px);
+  transition:
+    opacity 0.45s var(--cf-motion-spring),
+    transform 0.45s var(--cf-motion-spring),
+    filter var(--cf30-decel-dur, 560ms) var(--cf30-decel);
+}
+
+.poster-frame img.is-loaded,
+.poster-frame img.cf8-poster-loaded {
+  filter: blur(0);
+}
+
+/* ============================================================
+ * B1 · 轨道边缘渐隐：不透明贴纸 → mask-image
+ *   复用 premium-ui 已算好的 .is-scrollable-left/right 状态类，零 JS 改动。
+ *   mask 是绘制效果，不改布局盒，与"悬停浮起被 overflow 裁剪"无关。
+ * ============================================================ */
+.cf9-rail-wrap.is-scrollable-left:not(.is-scrollable-right) .movie-rail {
+  mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 100%);
+}
+
+.cf9-rail-wrap.is-scrollable-right:not(.is-scrollable-left) .movie-rail {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 24px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 24px), transparent 100%);
+}
+
+.cf9-rail-wrap.is-scrollable-left.is-scrollable-right .movie-rail {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 24px,
+    #000 calc(100% - 24px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 24px,
+    #000 calc(100% - 24px),
+    transparent 100%
+  );
+}
+
+/* 旧的 34px 不透明渐变层退役：元素与 .is-visible 逻辑保留，只去掉绘制 */
+.cf9-rail-fade {
+  background: none !important;
+}
+
+/* ============================================================
+ * B2 · 轨道滚动进度细线（transform: scaleX，纯合成层）
+ * ============================================================ */
+.cf9-rail-wrap::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 4;
+  transform-origin: left center;
+  transform: scale3d(var(--cf30-progress, 0), 1, 1);
+  background: linear-gradient(
+    90deg,
+    rgba(var(--accent-rgb), 0.58),
+    rgba(var(--champagne-rgb), 0.42)
+  );
+  opacity: 0;
+  transition: opacity 240ms var(--cf30-decel);
+}
+
+.cf9-rail-wrap:hover::after,
+.cf9-rail-wrap:focus-within::after {
+  opacity: 0.58;
+}
+
+/* ============================================================
+ * B3 · 轨道右端「还有更多」呼吸微光
+ * ============================================================ */
+.cf9-rail-wrap.is-scrollable-right::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 14%;
+  bottom: 22%;
+  width: 2px;
+  pointer-events: none;
+  z-index: 4;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(var(--accent-rgb), 0.55),
+    transparent
+  );
+  animation: cf30Nudge 2.6s var(--cf30-loop) infinite;
+}
+
+@keyframes cf30Nudge {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+  50% {
+    opacity: 0.68;
+  }
+}
+
+/* ============================================================
+ * B4 · 卡片三层景深磁吸（在既有 is-pointer-lit 倾斜之上加分层位移）
+ *   （var(--cf-pointer-x) - 50) 是不可插值的算式，故意只让指针移动时才有差量，
+ *   指针停下后由指针坐标本身决定偏移量 —— 零 transition、零抖动。
+ * ============================================================ */
+/* 海报本体那一层由 cf29 的 poster-focus 提供（--cf-fpx / --cf-fpy，系数 1.35）。
+   这里只补它没覆盖的两层，且用同一对变量、不同系数 —— 三层位移量各异 → 真视差厚度。
+   静止时变量为 0，位移为 translate3d(0,0,0)，完全不产生额外合成成本。 */
+.movie-card:hover .score-pill,
+.movie-card:focus-visible .score-pill {
+  transform: translate3d(
+    calc(var(--cf-fpx, 0px) * 0.55),
+    calc(var(--cf-fpy, 0px) * 0.55),
+    0
+  );
+  transition: transform 260ms var(--cf30-decel);
+}
+
+.movie-card:hover h3,
+.movie-card:hover p,
+.movie-card:focus-visible h3,
+.movie-card:focus-visible p {
+  transform: translate3d(calc(var(--cf-fpx, 0px) * 0.3), 0, 0);
+  transition: transform 260ms var(--cf30-decel);
+}
+
+/* ============================================================
+ * B5 · 卡片入场 stagger（只覆盖基线 PREMIUM_REVEAL_MAX 之外的卡片）
+ * ============================================================ */
+.movie-card.cf30-enter {
+  animation: cf30CardIn 560ms var(--cf-motion-spring) both;
+  animation-delay: var(--cf30-enter-delay, 0ms);
+  will-change: transform, opacity;
+}
+
+@keyframes cf30CardIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 26px, 0) scale(0.965);
+  }
+  62% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+/* ============================================================
+ * C1 · 英雄区 Ken Burns 缓推（在既有 cfHeroBackdropBreathe 之上叠加）
+ *   既有动画仍在，这里追加一层独立的极慢推近，不与其争 animation 属性。
+ * ============================================================ */
+/* 用独立的 translate 属性而不是 transform：
+   transform 被 cfHeroBackdropBreathe 的 keyframes 占用、scale 被 cf30KenBurns 占用，
+   三者各管一个属性，才能同时生效且互不覆盖。 */
+.hero-section .hero-backdrop {
+  translate: 0 var(--cf30-hero-shift, 0px);
+  will-change: translate, scale;
+}
+
+.hero-section.is-section-visible .hero-backdrop {
+  animation:
+    cfHeroBackdropBreathe 920ms var(--cf-motion-luxury) both,
+    cf30KenBurns 34s var(--cf30-loop) 1s infinite alternate;
+}
+
+@keyframes cf30KenBurns {
+  from {
+    scale: 1;
+  }
+  to {
+    scale: 1.06;
+  }
+}
+
+/* ============================================================
+ * C2 · 英雄区滚动视差（文案与背景反向，走独立 translate 属性避免与 scale/transform 打架）
+ * ============================================================ */
+.hero-section .hero-copy {
+  translate: 0 var(--cf30-hero-copy-shift, 0px);
+}
+
+/* ============================================================
+ * C3 · 标题逐词入场：在既有 cf9WordUp 之上叠一层模糊收敛
+ * ============================================================ */
+/* premium-ui 的 <style id="cf-premium-style"> 在 dom-ready 时注入，
+   排在样式表之后 —— 同特异性会盖掉本规则。这里用 id 提高特异性稳住。 */
+#heroSection .cf9-word,
+.hero-copy .cf9-word {
+  animation:
+    cf9WordUp 0.62s var(--cf-motion-spring) both,
+    cf30WordFocus 0.86s var(--cf30-decel) both;
+  animation-delay: var(--cf9-word-delay, 0ms), var(--cf9-word-delay, 0ms);
+}
+
+@keyframes cf30WordFocus {
+  from {
+    filter: blur(6px);
+  }
+  to {
+    filter: blur(0);
+  }
+}
+
+/* ============================================================
+ * D1 · 点击涟漪（合成层 span，动画结束由 JS 摘除）
+ * ============================================================ */
+.cf30-ripple {
+  position: absolute;
+  left: var(--cf30-ripple-x, 50%);
+  top: var(--cf30-ripple-y, 50%);
+  width: var(--cf30-ripple-size, 120px);
+  height: var(--cf30-ripple-size, 120px);
+  margin-left: calc(var(--cf30-ripple-size, 120px) / -2);
+  margin-top: calc(var(--cf30-ripple-size, 120px) / -2);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.34),
+    rgba(var(--accent-rgb), 0.18) 46%,
+    transparent 72%
+  );
+  transform: scale3d(0, 0, 1);
+  opacity: 0.9;
+  animation: cf30Ripple 620ms var(--cf30-decel) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes cf30Ripple {
+  to {
+    transform: scale3d(2.6, 2.6, 1);
+    opacity: 0;
+  }
+}
+
+/* ============================================================
+ * D3 · 播放器控制条智能隐现（静止 2.5s 隐藏，一动即回）
+ * ============================================================ */
+.player-modal.is-open .player-shell .player-topbar,
+.player-modal.is-open .player-shell .player-bottom {
+  transition:
+    opacity 420ms var(--cf30-decel),
+    transform 420ms var(--cf30-decel);
+}
+
+.player-modal.is-open .player-shell.cf30-idle .player-topbar,
+.player-modal.is-open .player-shell.cf30-idle .player-bottom {
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  pointer-events: none;
+}
+
+.player-modal.is-open .player-shell.cf30-idle .player-topbar {
+  transform: translate3d(0, -6px, 0);
+}
+
+/* ============================================================
+ * D4 · 搜索框聚焦扩散光环
+ * ============================================================ */
+.search-box::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    rgba(var(--accent-rgb), 0.20),
+    transparent 68%
+  );
+  opacity: 0;
+  transform: scale3d(0.88, 0.88, 1);
+  transition:
+    opacity 420ms var(--cf30-decel),
+    transform 520ms var(--cf-motion-spring);
+}
+
+.search-box:focus-within::before {
+  opacity: 1;
+  transform: scale3d(1.12, 1.12, 1);
+}
+
+/* ============================================================
+ * E1 · contain-intrinsic-size 补 auto 关键字
+ *   content-visibility: auto 的固定占位是猜值，猜错会让滚动高度在区段进出视口时跳变。
+ *   auto 关键字让浏览器记住该项上次实际渲染的高度，首次之后不再跳。视觉零变化。
+ * ============================================================ */
+.content-section,
+.hero-section {
+  contain-intrinsic-size: auto 420px;
+}
+
+.movie-rail,
+.style-rail,
+.cast-row {
+  contain-intrinsic-size: auto 178px;
+}
+
+/* ============================================================
+ * 降级：沿用既有 27 处 reduce 块的口径，新增动效同样不跑（不是本轮新引入的降级）
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton div::after,
+  .skeleton span::after,
+  .skeleton small::after,
+  .skeleton-detail .detail-poster::after,
+  .skeleton-detail .detail-info p::after,
+  .skeleton div::before,
+  .skeleton span::before,
+  .skeleton small::before,
+  .skeleton-detail .detail-poster::before,
+  .skeleton-detail .detail-info p::before,
+  .cf9-rail-wrap.is-scrollable-right::before,
+  .cf30-ripple {
+    animation: none;
+    opacity: 0;
+  }
+
+  .skeleton {
+    animation: none;
+  }
+
+  .movie-card.cf30-enter {
+    animation: none;
+  }
+
+  .hero-section.is-section-visible .hero-backdrop {
+    animation: cfHeroBackdropBreathe 920ms var(--cf-motion-luxury) both;
+  }
+
+  .cf9-word {
+    animation: cf9WordUp 0.62s var(--cf-motion-spring) both;
+  }
+
+  .search-box::before {
+    transition: none;
+  }
+
+  .player-modal.is-open .player-shell .player-topbar,
+  .player-modal.is-open .player-shell .player-bottom {
+    transition: opacity 160ms linear;
+  }
+}
+
+
+/* ===== cf31 补丁（3.4.8 · 滑动流畅度 + 搜索页顶栏贴合）=====
+ *
+ * 三组改动：
+ *   一、搜索页与顶栏精准贴合（顶栏真实高度由 JS 同步到 --cf-titlebar-h）
+ *   二、海报 blur-up 收尾不再保留 filter（blur(0) 依然是滤镜通道）
+ *   三、滚动期主动减负：撤 mask、关过渡、停柔光 —— 静息后自动还原
+ *
+ * 只动绘制与合成路径，不改任何既有动效的缓动与时长。
+ */
+
+/* ------------------------------------------------------------
+ * 一 · 搜索页顶栏贴合
+ *   基线 .cf25-hub 的 top 是硬编码 76px，顶栏下沿却只有 72.7px —— 于是露出 4.6px 的缝。
+ *   只把 76 换成"顶栏高度"还不够（还剩 1.55px）：main.app-shell 在过渡期带 transform
+ *   + filter，按规范成了 position: fixed 后代的包含块，top 相对它而不是视口。
+ *   JS 侧 findContainingBlock() 回溯真实包含块后把差值写进变量（可为负），缝隙 → 0.02px。
+ * ------------------------------------------------------------ */
+.cf25-hub {
+  top: var(--cf-titlebar-h, 72.7px);
+  will-change: auto;
+}
+
+/* 阴影/描边本来就不该被顶栏切断，贴合后补一条极细的分隔光，避免"糊在一起" */
+.cf25-hub.is-open::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.09) 22%,
+    rgba(255, 255, 255, 0.09) 78%,
+    transparent
+  );
+}
+
+/* ------------------------------------------------------------
+ * 二 · 海报 blur-up 收尾
+ *   .is-loaded 本来就该是"已经清晰"，终点直接给 none 而不是 blur(0)，
+ *   让图片回到普通光栅路径；.cf30-sharp 由 JS 在淡入结束后补上做兜底。
+ * ------------------------------------------------------------ */
+.poster-frame img.is-loaded,
+.poster-frame img.cf8-poster-loaded {
+  filter: none;
+}
+
+.poster-frame img.cf30-sharp {
+  filter: none !important;
+}
+
+/* ------------------------------------------------------------
+ * 三 · 滚动期减负
+ *   1) 轨道边缘 mask 在滑动期间撤掉：mask 会把整条轨道并成一层带遮罩图层，
+ *      每帧重新光栅化。松手静息 120ms 后自动回来。
+ *   2) 卡片过渡与柔光动画在滑动期间暂停：此时指针在滚动条/轨道上，
+ *      这些过渡既看不见又在抢主线程。
+ * ------------------------------------------------------------ */
+.movie-rail.cf30-scrolling {
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+  /* 滚动期间撤掉 scroll-snap：粘滞吸附是"拖不动"的另一个来源，
+     松手静息后自动恢复，静止手感一点没变。 */
+  scroll-snap-type: none !important;
+}
+
+.movie-rail.cf30-scrolling .movie-card {
+  scroll-snap-align: none !important;
+}
+
+.movie-rail.cf30-scrolling .movie-card,
+.movie-rail.cf30-scrolling .movie-card .poster-frame img,
+.movie-rail.cf30-scrolling .movie-card::after,
+.movie-rail.cf30-scrolling .poster-frame::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+.cf9-rail-wrap.cf30-scrolling::after {
+  transition: none !important;
+}
+
+.cf9-rail-wrap.cf30-scrolling.is-scrollable-right::before {
+  animation: none !important;
+  opacity: 0.34;
+}
+
+/* 页库/网格：整页纵向滚动期间同样摘掉卡片过渡与海报柔光 */
+body.cf3-scrolling .cf3-grid .movie-card,
+body.cf3-scrolling .cf3-grid .movie-card .poster-frame img,
+body.cf3-scrolling .cf3-grid .movie-card::after,
+body.cf3-scrolling .cf3-grid .poster-frame::after,
+body.cf3-scrolling .movie-rail .movie-card,
+body.cf3-scrolling .movie-rail .movie-card .poster-frame img {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* 卡片内部自成布局上下文：内部变化不再引起整条轨道重排 */
+.movie-card {
+  contain: layout style;
+}
+
+/* ------------------------------------------------------------
+ * 四 · 入场动效不再排队太久
+ *   上一轮 stagger 的延迟是 index * 42ms，最多 15 档 = 630ms，加上 560ms 动画，
+ *   卡片要 1.2s 才落定。这里把延迟上限压到 96ms、时长收到 420ms，
+ *   错相感知仍然在（相邻卡差 18~42ms），但不再"等半天才动"。
+ * ------------------------------------------------------------ */
+.movie-card.cf30-enter {
+  animation-delay: min(var(--cf30-enter-delay, 0ms), 96ms);
+  animation-duration: 420ms;
+}
+
+/* ============================================================
+ * 降级：沿用既有 reduce 口径，新增的滚动态开关在 reduce 下无副作用
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .cf25-hub.is-open::before {
+    display: none;
+  }
+
+  .movie-card.cf30-enter {
+    animation: none;
+  }
+}
+
+
+/* ===== cf32 补丁（3.4.8 · 分类片库闪烁 + 首页拖动卡顿 + 右侧闪动）=====
+ *
+ * 三处都先量过再动手，不凭感觉改：
+ *
+ *   一、分类片库"一直在闪 / 不停刷新"
+ *       实测：片库可见且 idle 的 6 秒内，grid 收到 216 次属性变更 —— 108 张卡被反复
+ *       加上 cf30-enter 又摘掉。上一轮的入场动效没有"只播一次"的闸门，任何一次
+ *       childList 变更都会让视口内的卡重播入场。已在 motion-extras.js 加
+ *       data-cf30-played 闸门（一次性），这里不再补 CSS 层规则。
+ *
+ *   二、首页拖动滑动条卡 + 右侧闪动
+ *       两个来源：
+ *       (a) douban-fallback 的 1200ms 空轨道轮询每轮重建两条轨道共 36 张卡。
+ *           实测 5 秒内 46 增 / 46 删 / 4 个批次；杀掉该定时器后归零。
+ *           已由 stability-guard.js 接管，基线文件零改动。
+ *       (b) 轨道边缘用 mask-image 做渐隐。mask 会把整条轨道并成一个带遮罩图层，
+ *           每帧重新光栅化；is-scrollable-right 一翻转就是整条轨道重绘 —— 右侧
+ *           "闪一下"正是它。改为独立的叠加渐变层（.cf9-rail-fade），
+ *           单独合成、零额外层、翻转时只重绘那 34px。
+ *
+ * 既有动效一个都没降级：只是把"每帧重算"换成"算一次挂上去"。
+ * ---------------------------------------------------------------------------- */
+
+/* ------------------------------------------------------------
+ * 一 · 轨道边缘渐隐：mask → 独立渐变层
+ *   cf30 曾把 .cf9-rail-fade 的 background 置 none、改用 mask。这里反过来：
+ *   重新点亮渐变层，同时把 mask 彻底关掉。
+ * ------------------------------------------------------------ */
+.cf9-rail-wrap .movie-rail,
+.cf9-rail-wrap.is-scrollable-left .movie-rail,
+.cf9-rail-wrap.is-scrollable-right .movie-rail,
+.cf9-rail-wrap.is-scrollable-left.is-scrollable-right .movie-rail {
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+}
+
+/* 渐变层：宽一点、软一点，颜色取 --bg，避免"黑带"观感 */
+.cf9-rail-fade {
+  background: none !important;
+  opacity: 0 !important;
+}
+
+/* 端点用 0.86 半透明而不是 var(--bg) 实色：
+   轨道背后是 app 的径向渐变（合成后亮度约 12.7），实色 #070810（亮度 8）
+   会在末端留下一条比周围更暗的窄带。0.86 与 premium-ui 原本 shipped 的
+   rgba(6,8,16,.85) 一致，是已经被接受过的观感。 */
+.cf9-rail-wrap > .cf9-rail-fade.is-left {
+  background: linear-gradient(
+    90deg,
+    rgba(7, 8, 16, 0.86) 0%,
+    rgba(7, 8, 16, 0.55) 38%,
+    rgba(7, 8, 16, 0.2) 74%,
+    rgba(7, 8, 16, 0) 100%
+  ) !important;
+  width: 40px;
+  left: -2px;
+}
+
+.cf9-rail-wrap > .cf9-rail-fade.is-right {
+  background: linear-gradient(
+    270deg,
+    rgba(7, 8, 16, 0.86) 0%,
+    rgba(7, 8, 16, 0.55) 38%,
+    rgba(7, 8, 16, 0.2) 74%,
+    rgba(7, 8, 16, 0) 100%
+  ) !important;
+  width: 40px;
+  right: -2px;
+}
+
+.cf9-rail-wrap.is-scrollable-left:not(.is-scrollable-right) > .cf9-rail-fade.is-left,
+.cf9-rail-wrap.is-scrollable-right:not(.is-scrollable-left) > .cf9-rail-fade.is-right,
+.cf9-rail-wrap.is-scrollable-left.is-scrollable-right > .cf9-rail-fade.is-left,
+.cf9-rail-wrap.is-scrollable-left.is-scrollable-right > .cf9-rail-fade.is-right {
+  opacity: 1 !important;
+}
+
+/* 渐变层不参与指针事件、不参与布局，纯合成 */
+.cf9-rail-wrap > .cf9-rail-fade {
+  pointer-events: none;
+  transition: opacity 140ms linear;
+}
+
+/* ------------------------------------------------------------
+ * 二 · 滚动期减负的收口
+ *   cf31 已在滚动期撤 mask / 禁 snap / 停过渡。mask 现在全程为 none，
+ *   这一条只是把 scroll-snap 的开关留着，静止观感不变。
+ * ------------------------------------------------------------ */
+.movie-rail.cf30-scrolling {
+  scroll-snap-type: none !important;
+}
+
+/* ------------------------------------------------------------
+ * 三 · 轨道被误清空时不要"白一下"
+ *   守卫恢复快照的窗口内，先保住轨道高度，避免整页跳动。
+ * ------------------------------------------------------------ */
+.movie-rail.cf32-rail-restoring {
+  min-height: 284px;
+}
+
+/* ------------------------------------------------------------
+ * 四 · 卡片入场：闸门在 JS，这里只保证重播时不会读到上一轮的延迟
+ * ------------------------------------------------------------ */
+.movie-card[data-cf30-played='1']:not(.cf30-enter) {
+  animation-delay: 0ms;
+}
+
+/* ------------------------------------------------------------
+ * 降级
+ * ------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .cf9-rail-wrap > .cf9-rail-fade {
+    transition: none;
+  }
+}
+
+
+/* ===== cf33 补丁（3.4.8 · 整体响应速度）=====
+ *
+ * 症状是「整个应用操作迟钝、有很大延迟」。查下来不是 JS 慢 ——
+ * 悬停 40 张卡时 CPU profile 里 JS 侧 97% 空闲，热点全在合成器。
+ *
+ * 根因是光栅化预算：1280×779 的窗口在 devicePixelRatio 1.75 下，
+ * 每帧要画 2240×1364 ≈ 306 万物理像素，跑在 VMware SVGA 软件渲染上。
+ * 在这种预算里，backdrop-filter 是压倒性的开销：它要读回背后已画好的整块
+ * 内容再模糊一次，元素一动就重做。全应用当时有 211 个元素带毛玻璃，
+ * 其中 86 张卡各带 blur(20px)、86 个评分胶囊各带 blur(12px)。
+ *
+ * 实测（竖向滚动 + 横向轨道滚动同时进行，各 2.2s）：
+ *
+ *   基线                   9.4 fps   p50 105.2ms   p95 188.2ms
+ *   卡片/评分毛玻璃关掉   18.6 fps   p50  52.4ms   p95  93.2ms
+ *   滚动期其余毛玻璃让位  20.9 fps   p50  45.9ms   p95  80.6ms
+ *   滚动期暂停常驻动画    22.8 fps   p50  37.0ms   p95  78.2ms
+ *   隐藏页移出渲染树      25.2 fps   p50  31.8ms   p95  79.1ms
+ *
+ * 帧间隔中位数 105 → 32ms，约 3.3 倍。
+ *
+ * 观感代价：
+ *   · 关掉卡片毛玻璃 —— 卡片背后是一层平滑的深色渐变，模糊它本来就看不出。
+ *     前后截图逐像素比对：平均差 0.187/255，只有 0.19% 的像素变化超过 2。
+ *   · 其余取舍只在**滚动进行中**生效，停下 160ms 就恢复原样，静止时零改动。
+ *
+ * 所有动效都保留，一个时长没改；只是让「正在动的这一瞬间」少做一些看不见的活。
+ * ---------------------------------------------------------------------------- */
+
+/* ------------------------------------------------------------
+ * 一 · 常驻：卡片与评分的毛玻璃
+ *   卡片背景是 rgba(255,255,255,.055)，frosted 观感全部来自这层 blur，
+ *   而它模糊的是自己背后那层平滑渐变 —— 拿掉之后像素级几乎无差别。
+ *   评分胶囊同理（背景本身已有 0.72 不透明度，透出来的主要是暗色）。
+ * ------------------------------------------------------------ */
+.movie-card,
+.movie-card::before,
+.movie-card::after,
+.score-pill {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ------------------------------------------------------------
+ * 二 · 滚动进行中：大块毛玻璃让位
+ *   只列真正占面积的几个。搜索框 659×52、状态条 1223×49、
+ *   英雄区 1223×395 —— 其中英雄区一块就顶掉一整个屏幕的模糊量。
+ *   手一停（160ms）就恢复，静止画面与原来完全一致。
+ * ------------------------------------------------------------ */
+body.cf33-scroll .hero-section,
+body.cf33-scroll .status-banner,
+body.cf33-scroll .search-box,
+body.cf33-scroll .style-chip,
+body.cf33-scroll .cf3-totop,
+body.cf33-scroll .cf9-rail-arrow,
+body.cf33-scroll .cf3-sheet {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ------------------------------------------------------------
+ * 三 · 滚动进行中：常驻循环动画暂停
+ *   这些动画在滚动时既看不清、又要每帧重新合成。暂停而不是移除，
+ *   停下后从原处继续，时长与曲线一个都没改。
+ * ------------------------------------------------------------ */
+body.cf33-scroll .hero-backdrop,
+body.cf33-scroll .hero-copy,
+body.cf33-scroll .hero-poster,
+body.cf33-scroll .cf9-hero-crossfade,
+body.cf33-scroll .content-section,
+body.cf33-scroll .movie-card,
+body.cf33-scroll .poster-frame img {
+  animation-play-state: paused !important;
+}
+
+/* ------------------------------------------------------------
+ * 四 · 隐藏页面移出渲染树
+ *   page-transition 里非当前页只是 opacity:0，仍然参与布局与绘制：
+ *   片库 50 张卡、历史页整页都在白算。休眠由 response-boost.js 在
+ *   页面停稳 900ms 后加上，任何切页动作（keydown / pointerdown）在
+ *   捕获阶段就会同步摘掉，所以过渡动画不会从空白页起跳。
+ * ------------------------------------------------------------ */
+.cf3-page.cf33-dormant {
+  content-visibility: hidden;
+  /* content-visibility:hidden 会让内部内容不参与布局，显式给它一个与舞台
+     同尺寸的容器尺寸，挂回来的瞬间不会先塌成 0 再撑开。 */
+  contain-intrinsic-size: auto 704px;
+}
+
+/* ------------------------------------------------------------
+ * 五 · 悬停/聚焦卡片时不要为「可能会动」提前铺层
+ *   will-change 会把元素永久提升成合成层；卡片有 86 张，
+ *   提前铺层等于让合成器一直扛着 86 个图层。指上去再提升足够了。
+ * ------------------------------------------------------------ */
+.movie-card {
+  will-change: auto;
+}
+
+.movie-card:hover,
+.movie-card:focus-visible,
+.movie-card.is-pointer-lit,
+.movie-card.is-focus-lit {
+  will-change: transform;
+}
+
+/* ------------------------------------------------------------
+ * 降级
+ * ------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  body.cf33-scroll .hero-backdrop,
+  body.cf33-scroll .hero-copy,
+  body.cf33-scroll .hero-poster,
+  body.cf33-scroll .cf9-hero-crossfade,
+  body.cf33-scroll .content-section,
+  body.cf33-scroll .movie-card,
+  body.cf33-scroll .poster-frame img {
+    animation-play-state: running !important;
+  }
+}
+
+/* ============================================================================
+ * cf34 · Animeko 深度融合层（第五十轮）
+ *
+ * 调研来源：open-ani/animeko（AGPL-3.0，main 分支完整源码）。
+ * 本节只做「拿掉看不见的活」与「补上缺的令牌」，不改任何既有动效的时长与曲线。
+ * ---------------------------------------------------------------------------- */
+
+/* ------------------------------------------------------------
+ * 一 · 骨架屏 100ms 门控（对应 animeko FastLinearProgressIndicator.kt）
+ *   原文：「延迟 delayMillis 毫秒后才开始显示进度条. 如果在这个时间内 visible
+ *   变为 false, 则不会显示进度条.」
+ *   本机热缓存命中时搜索常常 40~90ms 就回来了，骨架屏却照常插入再移除，
+ *   屏幕闪一下。这里让它晚 100ms 才淡入：秒回时它从未出现，慢请求照常显示。
+ *   shimmer 本身 1.25s infinite 一动没动 —— 只是晚 100ms 入场。
+ * ------------------------------------------------------------ */
+@keyframes cf34SkeletonIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.skeleton,
+.skeleton-detail,
+.cf25-skeleton,
+.cf25-skeleton-row {
+  animation: cf34SkeletonIn 160ms linear 100ms both;
+}
+
+/* progress-gate.js 认出「这个容器第一次就是秒回」后会打上 data-cf34-fast，
+   后续同容器直接按已显示处理，不再白等这 100ms。 */
+.skeleton[data-cf34-gate="fast"],
+.skeleton-detail[data-cf34-gate="fast"],
+.cf25-skeleton[data-cf34-gate="fast"],
+.cf25-skeleton-row[data-cf34-gate="fast"] {
+  animation: none;
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------
+ * 二 · 大块毛玻璃收口（对应 animeko AppChromeFrostedGlass.kt）
+ *   animeko 里毛玻璃只给 chrome（顶栏 + 导航栏），并且是「不透明底色 + 噪声」，
+ *   内容区一律不模糊。本机是 VMware SVGA 软件渲染，1280×779 @1.75dpr ≈ 306 万
+ *   物理像素/帧，backdrop-filter 要把背后已画好的整块读回来再模糊一遍，
+ *   元素一动就重做 —— 这是当前最大的单笔开销。
+ *
+ *   英雄区 1223×395 一块就顶掉一整个屏幕的模糊量。它背后是页面自己的平滑
+ *   径向渐变，深度模糊之后肉眼无差别（后附逐像素比对证据）。
+ * ------------------------------------------------------------ */
+.hero-section {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 状态条与搜索框：同样只糊页面渐变，但面积更小、且各自带半透明底色。
+   摘掉 blur 的同时把底色抬到等效不透明度，观感不变而不用每帧回读。 */
+.status-banner {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: rgba(9, 10, 15, 0.66);
+}
+
+.search-box {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: rgba(13, 14, 17, 0.72);
+}
+
+/* ------------------------------------------------------------
+ * 三 · 切页位移按宽度分级（对应 animeko AniMotionScheme.kt:304）
+ *   原文：derivedStateOf { windowSizeClass.isWidthCompact } // reduce recompositions
+ *         以及 NavigationMotionScheme.calculate(useSlide = isWidthCompact)
+ *   —— 宽屏上不做长距离滑移，改成「主导不透明度 + 短位移」。
+ *
+ *   只重定义关键帧、不改时长与曲线：--cf3-enter-ms / --cf3-ease-glide 原样生效。
+ *   34px 位移会让整层 1223×779 重新光栅化；8px + opacity 是纯合成器操作。
+ * ------------------------------------------------------------ */
+@media (min-width: 1100px) {
+  @keyframes cf3EnterFromRight {
+    from {
+      opacity: 0.4;
+      transform: translate3d(8px, 0, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes cf3EnterFromLeft {
+    from {
+      opacity: 0.4;
+      transform: translate3d(-8px, 0, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes cf3DimToLeft {
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0.72;
+      transform: translate3d(-5px, 0, 0);
+    }
+  }
+
+  @keyframes cf3DimToRight {
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0.72;
+      transform: translate3d(5px, 0, 0);
+    }
+  }
+
+  @keyframes cf3LeaveToRight {
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0;
+      transform: translate3d(7px, 0, 0);
+    }
+  }
+
+  @keyframes cf3LeaveToLeft {
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0;
+      transform: translate3d(-7px, 0, 0);
+    }
+  }
+}
+
+/* ------------------------------------------------------------
+ * 四 · 静止页不铺层
+ *   .cf3-enter / .cf3-leave 上的 will-change 保留（过渡首帧需要），
+ *   但静止的页面不该长期占着一个合成层。隐藏页另有 cf33-dormant 接管。
+ * ------------------------------------------------------------ */
+.cf3-page:not(.cf3-enter):not(.cf3-enter-active):not(.cf3-leave) {
+  will-change: auto;
+}
+
+/* ------------------------------------------------------------
+ * 五 · M3 动效令牌（对应 animeko MaterialEasing.kt / EasingDurations）
+ *   只新增别名，绝不覆盖任何既有 --cf-motion-* / --cf3-* 变量。
+ *   附带事实：既有 --cf30-decel: cubic-bezier(0.2, 0, 0, 1) 恰好等于
+ *   animeko 的 StandardEasing，两边的曲线族本来就同源。
+ * ------------------------------------------------------------ */
+:root {
+  --cf34-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --cf34-ease-decel: cubic-bezier(0, 0, 0, 1);
+  --cf34-ease-accel: cubic-bezier(0.3, 0, 1, 1);
+  --cf34-ease-emphasized-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --cf34-ease-emphasized-accel: cubic-bezier(0.3, 0, 0.8, 0.15);
+  /* M3 emphasized 是两段连续贝塞尔，单个 cubic-bezier() 表达不了。
+     由 scripts/gen-emphasized-linear.cjs 按 32 个 stop 采样生成。 */
+  --cf34-ease-emphasized: linear(0, 0.0079 3.125%, 0.0329 6.25%, 0.0804 9.375%, 0.1622 12.5%, 0.313 15.625%, 0.5711 18.75%, 0.7022 21.875%, 0.7728 25%, 0.8192 28.125%, 0.8528 31.25%, 0.8785 34.375%, 0.8989 37.5%, 0.9155 40.625%, 0.9293 43.75%, 0.9409 46.875%, 0.9506 50%, 0.9589 53.125%, 0.966 56.25%, 0.9721 59.375%, 0.9773 62.5%, 0.9817 65.625%, 0.9855 68.75%, 0.9887 71.875%, 0.9914 75%, 0.9936 78.125%, 0.9955 81.25%, 0.997 84.375%, 0.9981 87.5%, 0.999 90.625%, 0.9996 93.75%, 0.9999 96.875%, 1);
+
+  --cf34-dur-emphasized: 500ms;
+  --cf34-dur-emphasized-decel: 400ms;
+  --cf34-dur-emphasized-accel: 200ms;
+  --cf34-dur-standard: 300ms;
+  --cf34-dur-standard-decel: 250ms;
+  --cf34-dur-standard-accel: 200ms;
+}
+
+/* 颜色令牌注册成可插值类型：主题切换因此能像 animeko 的
+   animateColorScheme(target, tween(300)) 一样平滑过渡，而不是跳变。 */
+@property --cf34-accent-rgb {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 127;
+}
+
+/* ------------------------------------------------------------
+ * 六 · 一次性提示（对应 animeko widgets/OneshotTip.kt）
+ * ------------------------------------------------------------ */
+.cf34-oneshot-tip {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  z-index: 90;
+  padding: 10px 18px;
+  border: 1px solid rgba(var(--champagne-rgb), 0.22);
+  border-radius: 999px;
+  background: rgba(10, 11, 15, 0.86);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+  color: rgba(246, 240, 228, 0.92);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-50%, 10px, 0);
+  transition:
+    opacity var(--cf34-dur-standard-decel) var(--cf34-ease-decel),
+    transform var(--cf34-dur-emphasized-decel) var(--cf34-ease-emphasized-decel);
+}
+
+.cf34-oneshot-tip.is-visible {
+  opacity: 1;
+  transform: translate3d(-50%, 0, 0);
+}
+
+/* ------------------------------------------------------------
+ * 降级：用户要求减少动态效果时，骨架屏不再延迟入场
+ * ------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .skeleton-detail,
+  .cf25-skeleton,
+  .cf25-skeleton-row {
+    animation: none;
+    opacity: 1;
+  }
+
+  .cf34-oneshot-tip {
+    transition: none;
+  }
+}
+
+
+/* ============================================================================
+ * cf35 · 海报闪烁修正（第五十一轮 · 用户复测：仍在闪、滚动仍有延迟）
+ *
+ * 逐帧采样 computed style 抓到两个真凶，都不是预算问题，是逻辑错误：
+ *
+ * 一 · 海报真的在消失
+ *   .cf8-poster-loaded 的可见性完全挂在 animation: cf8Fade .32s ease both 上 ——
+ *   fill:both 把终态 opacity:1 写在动画里，基础态 .poster-frame img 是 opacity:0
+ *   （premium-ui 第 26 行）。而 cf30 / cf33 两套「滚动期减负」都写了
+ *   animation: none !important，一滚动就把这条动画摘掉，both 填充跟着消失 →
+ *   海报从 opacity:1 掉到 0，滚动一停又加回来再淡入一次。
+ *   采样到的完整序列：none|1 → none|0 → cf8Fade|0 → cf8Fade|1。
+ *
+ * 二 · 一次性动画被暂停
+ *   body.cf33-scroll .poster-frame img { animation-play-state: paused }
+ *   把 one-shot 动画定格在 from{opacity:0}。滚动开始那一刻正在淡入的海报，
+ *   会一直隐形到滚动结束。
+ *
+ * 修正原则：滚动期只许减「过渡」和「无限循环动画」，
+ * 一律不许碰「一次性动画」—— 摘掉它等于摘掉它的终态。
+ * ---------------------------------------------------------------------------- */
+
+/* 1 · 给 cf8 海报一条不依赖动画的终态。动画在播时动画优先，
+ *     动画被摘掉时这条兜底，海报不会掉到 opacity:0 */
+.poster-frame img.cf8-poster-loaded {
+  opacity: 1;
+}
+
+/* 2 · 把被 animation:none 摘掉的一次性淡入动画原样补回来。
+ *     选择器权重与原来那几条 animation:none 对齐，位置更靠后，!important 对 !important 取胜 */
+.movie-rail.cf30-scrolling .movie-card .poster-frame img.cf8-poster-loaded,
+body.cf3-scrolling .cf3-grid .movie-card .poster-frame img.cf8-poster-loaded,
+body.cf3-scrolling .movie-rail .movie-card .poster-frame img.cf8-poster-loaded {
+  animation: cf8Fade 0.32s ease both !important;
+}
+
+/* 3 · 卡片入场同理：cf30-enter 是 one-shot + both，
+ *     .movie-rail.cf30-scrolling .movie-card 那条 animation:none 会把它摘掉，
+ *     卡片就在滚动开始的瞬间塌回 opacity:0。
+ *     曲线与时长照抄 12804 / 13133 的原值，一个都没改；reduce 下保持原有的 none */
+@media (prefers-reduced-motion: no-preference) {
+  .movie-rail.cf30-scrolling .movie-card.cf30-enter,
+  body.cf3-scrolling .movie-rail .movie-card.cf30-enter,
+  body.cf3-scrolling .cf3-grid .movie-card.cf30-enter {
+    animation: cf30CardIn 420ms var(--cf-motion-spring) both !important;
+    animation-delay: min(var(--cf30-enter-delay, 0ms), 96ms) !important;
+  }
+}
+
+/* 4 · 一次性动画不许暂停：海报淡入、卡片入场都是 one-shot */
+body.cf33-scroll .poster-frame img,
+body.cf33-scroll .movie-card,
+body.cf3-scrolling .cf3-grid .movie-card .poster-frame img,
+body.cf3-scrolling .movie-rail .movie-card .poster-frame img,
+.movie-rail.cf30-scrolling .movie-card .poster-frame img {
+  animation-play-state: running !important;
+}
+
+/* 5 · 把 cf3-scrolling 的职责并进 cf33-scroll：同一批滚动事件上
+ *     不再同时翻两个 body 类名（每次 body class 变更都要重算整棵子树）。
+ *     只保留「过渡让位」，不碰任何动画。 */
+body.cf33-scroll .cf3-grid .movie-card,
+body.cf33-scroll .cf3-grid .movie-card .poster-frame img,
+body.cf33-scroll .cf3-grid .movie-card::after,
+body.cf33-scroll .cf3-grid .poster-frame::after,
+body.cf33-scroll .movie-rail .movie-card,
+body.cf33-scroll .movie-rail .movie-card .poster-frame img {
+  transition: none !important;
+}
+
+/* ----------------------------------------------------------------------------
+ * 6 · 海报不再常驻合成层
+ *   styles.css:12413 给 .movie-rail .movie-card .poster-frame img 写了
+ *   will-change: transform —— 这是"提前提升成合成层"。首页 8 条轨道 × 10~12 张，
+ *   片库一屏 50 张，等于让合成器一直扛着上百个独立图层；在软件渲染下每帧都要
+ *   把这些层逐一合成，滚一下就是上百次合成操作。
+ *
+ *   cf33 已经把 .movie-card 的 will-change 收窄成"只在悬停时提升"，
+ *   但海报本体这一条漏掉了。这里按同一口径收窄：静止不预提升，
+ *   指针真正落到卡片上才提升 —— 悬停视差照样有层可动。
+ * ---------------------------------------------------------------------------- */
+/* 权重必须盖过 12413 的 .movie-rail .movie-card .poster-frame img（0,3,1），
+ * 单类选择器压不住，这里按同等结构复写并补 !important。 */
+.movie-rail .movie-card .poster-frame img,
+.cf3-grid .movie-card .poster-frame img {
+  will-change: auto !important;
+  transform: translate3d(0, 0, 0) scale(1.03);
+}
+
+/* 悬停/聚焦时才提升（原有视差需要层），权重同样对齐 */
+.movie-rail .movie-card:hover .poster-frame img,
+.movie-rail .movie-card:focus-visible .poster-frame img,
+.movie-rail .movie-card.is-pointer-lit .poster-frame img,
+.movie-rail .movie-card.is-focus-lit .poster-frame img,
+.cf3-grid .movie-card:hover .poster-frame img,
+.cf3-grid .movie-card:focus-visible .poster-frame img,
+.cf3-grid .movie-card.is-pointer-lit .poster-frame img,
+.cf3-grid .movie-card.is-focus-lit .poster-frame img {
+  will-change: transform !important;
+}
+
+/* 滚动期间一律不预提升：此时指针在滚轮上，悬停视差根本不会触发 */
+body.cf33-scroll .poster-frame img,
+.movie-rail.cf30-scrolling .poster-frame img {
+  will-change: auto !important;
+}
+
+/* ============================================================================
+ * cf36 · 海报首帧直出（第五十二轮）
+ *
+ * 「首页以及分类片库的海报显示有很大延迟」——逐帧采样后确认是三件事叠加：
+ *
+ *   一 · 基线轨道在首屏前 5 秒被重建 3~5 次
+ *        89ms   卡片进 DOM
+ *        1959ms personalizedRail.innerHTML = 骨架 → '' → 逐张重挂
+ *        3808ms 第三次
+ *        4927ms cf32-rail-restoring 再清空一次
+ *        5609ms 第一个 .poster-frame img 才 opacity >= 1
+ *        每次重建都把 <img> 连同已解码位图一起丢掉，海报管线
+ *        queuePoster → IntersectionObserver → douban:poster(≈394ms)
+ *        → douban:image(≈46ms) → applyPoster 从第 0 步重来。
+ *
+ *   二 · cf8Fade 把「直出」又拖慢一次
+ *        .cf8-poster-loaded 挂着 animation: cf8Fade .32s ease both，
+ *        动画起点是 from{opacity:0}。所以哪怕图已经在手，也要 320ms 才看得见。
+ *
+ *   三 · 一次性动画被 pause 在 0
+ *        body.cf33-scroll 一挂上就 animation-play-state: paused，
+ *        而 fill:both 会停在 from{opacity:0} —— 实测启动阶段 splash-active
+ *        期间 cf33-scroll 就误触发，海报整段隐形到 splash 结束。
+ *
+ * cf36-instant 是给 poster-memory.js 用的「已经是最终态」标记：
+ * 写死可见、掐掉动画与过渡。只加在「记忆里已经有这张图的字节」的重挂载上，
+ * 首次出现仍然走原来的 blur-up + cf8Fade，观感一点没降级。
+ * ========================================================================= */
+
+/* 闪屏期间任何滚动减负都不得暂停一次性动画：摘不到终态就等于隐形 */
+body.splash-active .poster-frame img,
+body.splash-active .poster-frame img.cf8-poster-loaded {
+  animation-play-state: running !important;
+}
+
+.poster-frame img.cf36-instant,
+.cf3-thumb img.cf36-instant,
+.cf25-poster img.cf36-instant {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: none !important;
+  animation: none !important;
+  transition: none !important;
+  will-change: auto !important;
+}
+
+
+/* ============================================================================
+ * cf37 补丁（3.4.8 · 第 53 轮）：栏目指针感应滑动
+ *
+ * 只针对首页下方两个轨道（.content-section .movie-rail）：
+ *   · 隐藏横向滚动条（原来占 17px，且会随滚动闪）；
+ *   · 指针进入左右边缘带时按 深度² 曲线加速滑行，移开后缓出吸附到最近一张卡。
+ *
+ * 不碰的东西：138/178px 卡宽、16px gap、24px 圆角、scroll-snap 的 proximity 语义
+ * （只在滑行瞬间临时置 none，结束后交还原生），以及片库的 .cf3-grid。
+ * ========================================================================== */
+
+.content-section .movie-rail.cf37-glide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.content-section .movie-rail.cf37-glide::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* 去掉滚动条后补回高度的 17px：min-height 里原本已算进去，这里只是把 padding 收回来，
+   保证卡片底部与标题的间距跟有滚动条时一模一样，不会塌下去。 */
+.content-section .movie-rail.cf37-glide {
+  padding-bottom: 14px;
+  scroll-padding-inline: 2px;
+}
+
+/* 滑行期间临时关掉原生吸附：scroll-snap-type: x proximity 会和逐帧写 scrollLeft 打架，
+   表现为一顿一顿的"咯噔"。吸附动画结束后立刻交还。 */
+.content-section .movie-rail.cf37-glide.cf37-gliding {
+  scroll-snap-type: none;
+}
+
+/* 指针停在边缘、栏目正在自己滑的时候，竖向滚动仍然可用（滚轮事件照常冒泡到 app-shell）。 */
+.content-section .movie-rail.cf37-glide {
+  overscroll-behavior-x: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content-section .movie-rail.cf37-glide.cf37-gliding {
+    scroll-behavior: auto;
+  }
+}
+
+
+/* ============================================================================
+ * cf37 补丁（3.4.8 · 第 53 轮）之二：悬停姿态从「固定动作」改成「跟手」
+ *
+ * 原来：.movie-card:hover 一次性弹到 translate3d(0,-7px,0) scale(1.045)，520ms 弹簧。
+ *       姿态写死，指针在卡内怎么动都一样 → 看着机械、僵硬。
+ * 现在：在同一个姿态上叠 rotateX/rotateY（由 card-tilt.js 按指针位置逐帧写入），
+ *       进入过渡收到 180ms 才跟得住手；520ms 那档原样保留给其它元素。
+ * ========================================================================== */
+
+.movie-rail .movie-card.cf37-tilt {
+  transform:
+    perspective(1000px)
+    translate3d(0, -7px, 0)
+    rotateX(var(--cf37-rx, 0deg))
+    rotateY(var(--cf37-ry, 0deg))
+    scale(1.045);
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 420ms var(--cf-motion-spring),
+    border-color 260ms ease,
+    background 260ms ease,
+    filter 320ms ease;
+}
+
+/* 文案层与海报反向轻移，卡片内部有了前后两层 */
+.movie-rail .movie-card.cf37-tilt h3,
+.movie-rail .movie-card.cf37-tilt p {
+  transform: translate3d(var(--cf37-cx, 0px), var(--cf37-cy, 0px), 0);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* 3D 倾斜会露出卡片底边以外的空隙，给轨道留一点透视余量，避免被裁切线切到 */
+.movie-rail {
+  perspective: 1400px;
+}
+
+/* 邻位让位那条规则的特异性是 (0,3,1)；倾斜态下让它继续生效但不再二次缩放 */
+.movie-rail .movie-card.cf37-tilt + .movie-card {
+  transform: translate3d(5px, 0, 0) scale(0.994);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .movie-rail .movie-card.cf37-tilt {
+    transform: translate3d(0, -7px, 0) scale(1.045);
+  }
+  .movie-rail .movie-card.cf37-tilt h3,
+  .movie-rail .movie-card.cf37-tilt p {
+    transform: none;
+  }
+}

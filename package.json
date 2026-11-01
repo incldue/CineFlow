@@ -1,7 +1,7 @@
 {
   "name": "cineflow",
   "productName": "CineFlow",
-  "version": "3.4.7",
+  "version": "3.4.8",
   "description": "A smooth desktop movie recommendation app powered by TMDB.",
   "author": "debu8ger",
   "main": "electron/bootstrap.cjs",

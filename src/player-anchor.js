@@ -1,5 +1,5 @@
 /**
- * CineFlow 3.4.7 · cf24 播放器定位守护（新增文件，零侵入）
+ * CineFlow 3.4.8 · cf24 播放器定位守护（新增文件，零侵入）
  *
  * 背景：#app 上的 transform: translateZ(0) 让它成为 fixed 后代的包含块，
  * 而 #app 又是可被程序化滚动的溢出容器。播放时若焦点/scrollIntoView 把
