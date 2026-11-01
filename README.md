@@ -113,7 +113,7 @@ CineFlow/
 └─ README.md
 ```
 
-Proudly supported by the LINUX community.
+Proudly supported by the LINUX DO community.
 
 ## Star增长
 
