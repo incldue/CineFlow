@@ -11,13 +11,6 @@
 
 除元数据发现外，它还内置一个**跨片源的实时搜索页**：按一个回车横扫你配置的全部在线片源，把同一部影视在多个源上的命中归并成一行，点一下直接起播 —— 找片与看片之间不再需要跳出去。
 
-![image1|690x443](upload://6pALn099HGIVvIGAZSxw6sE58yi.jpeg)
-
-![image2|690x447](upload://fvvGQIGu36IdLRJsQ8y1cd65dYD.jpeg)
-
-![image3|690x453](upload://td3vLHQ9JntohqepV9NJpRn4aLy.jpeg)
-
-
 ## 功能亮点
 
 ### 发现与浏览
