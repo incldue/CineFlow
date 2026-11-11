@@ -13872,3 +13872,52 @@ body.splash-active .poster-frame img.cf8-poster-loaded {
     transform: none;
   }
 }
+
+
+/* ============================================================================
+ * cf38 补丁（3.4.9）：去掉播放器的「复制链接」
+ *
+ * 理由：「复制链接」与「外部打开」是同一件事的两种投递方式（一个进剪贴板、
+ * 一个交给默认浏览器），播放器操作栏里留着两个同义按钮只会让人犹豫。
+ *
+ * 第 54 轮先在不动 markdown 的前提下用 display:none 隐藏它；第 55 轮按用户要求
+ * 直接把 index.html 里那一行 <button id="playerCopyBtn"> 删掉了 —— 标记已经不存在。
+ *
+ * 这条规则现在只剩「防回流」的作用：万一将来某处模板、旧版缓存 HTML 或第三方补丁
+ * 把这个 id 带回来，它也不会出现。加上 src/player-actions-cleanup.js 的移除逻辑，
+ * 一共两层守卫，都不占运行时开销。
+ *
+ * 只作用于这一个 id，操作栏的布局、间距、其它按钮（外部打开 / 投屏 /
+ * 关闭播放 / 倍速 / 画中画）全部保持原样 —— 它们靠 flex gap 排布，少一个自然收拢。
+ * ========================================================================== */
+#playerCopyBtn {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+
+/* ===== cf40 补丁（3.4.9 · 第五十九轮）：搜索页在任意页面都能完整显示 =====
+ *
+ * 现象：首页点搜索框正常（磨砂搜索页 + 搜索记录气泡都在），切到分类片库/播放历史后
+ * 只剩搜索记录气泡，磨砂搜索页整块不见。
+ *
+ * 根因：搜索页 #cf25SearchHub 原本插在 #searchSection 之后，也就是 main.app-shell 内部；
+ * .app-shell 是 position:relative + z-index:1 的独立层叠上下文，子元素写多少 z-index
+ * 都会被钳进第 1 层，而页面切换舞台 .cf3-stage 是 #app 直接子节点、z-index:28 ——
+ * 于是搜索页永远沉在片库/历史页下面，只剩挂在 #app 里 z-index:31 的搜索记录气泡可见。
+ *
+ * 处理：把搜索页改挂 #app 直接子节点，层次钉在 29：
+ *   .cf3-stage 28  <  #cf25SearchHub 29  <  .cf7-history 31  <  #detailPanel(lift) 70
+ * 这样任何页面点搜索框都是同一套首页逻辑，气泡依然浮在搜索页之上。
+ */
+#app > .cf25-hub {
+  z-index: 29;
+}
+
+/* 详情卡抬升期（body.cf25-detail-lift）仍按原设计压在搜索页之上，这里只是把
+   搜索页的参与层级同步抬到 69，保持"详情 70 / 豆瓣卡 72 / 搜索页 69"的旧序。 */
+body.cf25-detail-lift > #app > .cf25-hub,
+body.cf25-detail-lift #app > .cf25-hub {
+  z-index: 69;
+}

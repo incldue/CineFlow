@@ -112,11 +112,22 @@ function latencyText(latencyMs) {
 
 /* ============ 面板构建 ============ */
 
+/**
+ * 面板挂到 #app 的直接子节点，而不是 #searchSection 之后。
+ *
+ * 原因（第五十九轮实测）：搜索页是 position:fixed，但 #searchSection 在 main.app-shell 里，
+ * 而 .app-shell 是 position:relative + z-index:1 自成一层的层叠上下文 —— 子元素的
+ * z-index:63 被整体钳进第 1 层，永远压在 .cf3-stage（z-index:28）之下。
+ * 于是首页（stage 全透明）能看见磨砂搜索页，切到分类片库（stage 铺满不透明）就只剩
+ * 搜索记录气泡（.cf7-history，z-index:31）。
+ *
+ * 挂到 #app 直接子节点后，与 .cf3-stage(28)、搜索记录气泡(31)、#detailPanel(30) 同层比较，
+ * 层次由末尾那条 cf40 规则钉在 29：盖住片库/历史页，又不遮住搜索记录气泡 —— 与首页完全一致。
+ */
 function buildPanel() {
-  const host = document.querySelector('#searchSection');
   const existing = document.getElementById(PANEL_ID);
   if (existing) return existing;
-  const anchor = host || document.querySelector('.app-shell') || document.body;
+  const anchor = document.getElementById('app') || document.body;
   if (!anchor) return null;
 
   const panel = document.createElement('section');
@@ -141,8 +152,7 @@ function buildPanel() {
     '<div id="cf25HubHistory" class="cf25-history is-hidden"></div>'
   ].join('');
 
-  if (host && host.parentNode) host.insertAdjacentElement('afterend', panel);
-  else anchor.appendChild(panel);
+  anchor.appendChild(panel);
 
   els.panel = panel;
   els.head = panel.querySelector('.cf25-head');
@@ -165,8 +175,18 @@ function buildPanel() {
 
 const FADE_OUT_MS = 170;
 
+function keepOnTop() {
+  // 页面切换/其它模块往 #app 里追加节点后，重新挂一次保持它是 #app 的最后一个直接子节点；
+  // 真正决定层次的是 CSS 里 #app > .cf25-hub 的 z-index，不靠 DOM 顺序。
+  try {
+    const host = document.getElementById('app');
+    if (host && els.panel && els.panel.parentElement !== host) host.appendChild(els.panel);
+  } catch { /* ignore */ }
+}
+
 function show() {
   if (!els.panel) return;
+  keepOnTop();
   // 正在淡出时又被唤起：掐掉收尾定时器，从当前透明度继续淡入，不重排
   if (hub.hideTimer) { window.clearTimeout(hub.hideTimer); hub.hideTimer = 0; }
   if (hub.visible) return;

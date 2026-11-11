@@ -158,7 +158,7 @@ async function queryUpstreamJson(upstream, name, typeLabel) {
   const url = new URL(upstream.url);
   url.searchParams.set('name', name);
   url.searchParams.set('type', typeLabel);
-  const res = await upstreamGet(url.toString(), { accept: 'application/dns-json', 'user-agent': 'CineFlow-SmartDoH/3.4.7' }, UPSTREAM_TIMEOUT_MS);
+  const res = await upstreamGet(url.toString(), { accept: 'application/dns-json', 'user-agent': 'CineFlow-SmartDoH/3.4.8' }, UPSTREAM_TIMEOUT_MS);
   if (res.status !== 200) throw new Error(`upstream http ${res.status}`);
   const payload = JSON.parse(res.body.toString('utf8'));
   if (!payload || typeof payload !== 'object' || !Array.isArray(payload.Answer)) throw new Error('upstream json shape');
@@ -171,7 +171,7 @@ async function queryUpstreamJson(upstream, name, typeLabel) {
 async function queryUpstreamWire(upstream, name, type) {
   const url = new URL(upstream.url);
   url.searchParams.set('dns', buildDnsQuery(name, type).toString('base64url'));
-  const res = await upstreamGet(url.toString(), { accept: 'application/dns-message', 'user-agent': 'CineFlow-SmartDoH/3.4.7' }, UPSTREAM_TIMEOUT_MS);
+  const res = await upstreamGet(url.toString(), { accept: 'application/dns-message', 'user-agent': 'CineFlow-SmartDoH/3.4.8' }, UPSTREAM_TIMEOUT_MS);
   if (res.status !== 200) throw new Error(`upstream http ${res.status}`);
   const parsed = parseDnsMessage(res.body);
   if (!parsed) throw new Error('upstream wire shape');

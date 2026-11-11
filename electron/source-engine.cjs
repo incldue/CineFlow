@@ -42,7 +42,7 @@ const PLAYSOURCE_BUDGET_MS = 5000;
 const PLAYABLE_MEDIA_EXTENSION_RE = /\.(?:m3u8|mpd|mp4|m4v|webm|ogv|ogg|flv|ts|m2ts|mts|mov|mkv|avi|mpeg|mpg|3gp|f4v)(?:$|[?#])/i;
 const NATIVE_MEDIA_EXTENSION_RE = /\.(?:mp4|m4v|webm|ogv|ogg|mov|mkv|avi|mpeg|mpg|3gp|f4v)(?:$|[?#])/i;
 const MEDIA_PAGE_HINT_RE = /\/(?:share|play|player|embed|vodplay|video)\//i;
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8';
 
 const state = {
   installed: false,

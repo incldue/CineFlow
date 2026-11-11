@@ -112,7 +112,7 @@ contextBridge.exposeInMainWorld('cineflowUpdate', {
   }
 });
 
-// v3.4.7 纯增量：搜索页片源中枢。再单独 expose 一个全局，不动上面任何既有对象字面量。
+// v3.4.8 纯增量：搜索页片源中枢。再单独 expose 一个全局，不动上面任何既有对象字面量。
 // start 立即返回（含逐源初始状态），逐源结果与终态全部走 cf:searchHub:progress 事件回推，
 // 避免轮询。onProgress 返回退订函数，渲染层重建时先退订再订阅，防重复渲染。
 contextBridge.exposeInMainWorld('cineflowSearchHub', {

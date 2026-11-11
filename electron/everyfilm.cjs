@@ -1,5 +1,5 @@
 const API_ROOT = 'https://every.film/api/v1';
-const UA = 'CineFlow/3.4.7 (personal desktop app; metadata via every.film)';
+const UA = 'CineFlow/3.4.8 (personal desktop app; metadata via every.film)';
 const SOURCE_HOME = 'https://every.film/';
 const https = require('node:https');
 

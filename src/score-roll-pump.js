@@ -207,8 +207,6 @@ function onMutations(records) {
   }
 }
 
-
-
 /* ---------- 无评分条目的显示 ---------- */
 /**
  * 豆瓣返回的条目里有一部分 rating 为空（新片、冷门片），基线 renderDoubanCards 写的是

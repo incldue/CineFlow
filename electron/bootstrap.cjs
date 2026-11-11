@@ -30,6 +30,21 @@ function recLog(...args) {
   }
 }
 
+// 直连模式下的超时收敛：基线默认值偏保守（TMDB 10s / 媒体代理 12s），
+// 无代理时被污染的域名每个都要等满超时才轮到 DoH 直连兜底，体感就是"片源很慢"。
+// 只有在用户没显式设置时才写入，显式环境变量优先。
+try {
+  const defaultEnv = {
+    CINEFLOW_TMDB_TIMEOUT_MS: '6000',
+    CINEFLOW_MEDIA_PROXY_TIMEOUT_MS: '7000',
+    CINEFLOW_MEDIA_RESOLVE_TIMEOUT_MS: '6000',
+    CINEFLOW_RESOURCE_TIMEOUT_MS: '5000'
+  };
+  for (const [key, value] of Object.entries(defaultEnv)) {
+    if (!process.env[key]) process.env[key] = value;
+  }
+} catch { /* best-effort */ }
+
 const recEnabled = fs.existsSync(ENGINE_ENTRY);
 let corePromise = null;
 let injectSource = null;
@@ -150,8 +165,56 @@ const coreLog = (...args) => {
     }
   }
 
+  // 无代理时的 DNS 污染兜底：先用多路 DoH 探出真实 IP，再写进 host-resolver-rules。
+  // 这样连 Chromium 自己的 <img>/<video> 请求也走真地址（SNI 与 Host 仍是原域名，证书照旧校验）。
+  try {
+    const { createNetRescue } = require('./net-rescue.cjs');
+    const mapHosts = ['api.themoviedb.org'];
+    const found = await createNetRescue({ log: coreLog }).prefetchIps(mapHosts, 450);
+    const rules = Object.entries(found).map(([host, ip]) => `MAP ${host} ${ip}`).join(', ');
+    if (rules) {
+      electron.app.commandLine.appendSwitch('host-resolver-rules', rules);
+      coreLog('DNS 直连映射:', rules);
+    }
+  } catch (err) {
+    coreLog('DNS 直连映射未启用:', err && err.message);
+  }
+
   // 原入口原样加载
   require('./main.cjs');
+
+  // session.fetch 直连兜底：装在 meta-server 之后，保证 TMDB / 片源解析 / 媒体代理都先经过它。
+  // 探测失败的域名不再等满 7~12s 超时，而是 1~2s 内给出结果。
+  try {
+    const { createNetRescue } = require('./net-rescue.cjs');
+    const settingsFile = path.join(electron.app.getPath('userData'), 'settings.json');
+    const rescue = createNetRescue({ log: coreLog, settingsFile });
+    globalThis.__cfNetRescue = rescue;
+    const attempt = (tag) => {
+      try {
+        const ses = electron.session.defaultSession;
+        if (ses && !ses.fetch.__cfNetRescuePatch) {
+          rescue.install(ses);
+          rescue.prefetchIps(['api.themoviedb.org'], 1200);
+        }
+      } catch (err) {
+        coreLog('直连兜底安装失败(' + tag + '):', err && err.message);
+      }
+    };
+    try {
+      const ses = electron.session.defaultSession;
+      if (ses && !ses.fetch.__cfNetRescuePatch) {
+        rescue.install(ses);
+        rescue.prefetchIps(['api.themoviedb.org', 'image.tmdb.org'], 3000);
+      }
+    } catch { /* ignore */ }
+    electron.app.whenReady().then(() => {
+      setTimeout(() => attempt('first'), 300);
+      setTimeout(() => attempt('recheck'), 2000);
+    }).catch(() => {});
+  } catch (err) {
+    coreLog('直连兜底模块加载失败:', err && err.message);
+  }
 
 // v3.4.6 架构基建：服务注册表统一装配（诊断 → 兼容层 → 引擎 → 契约 → Source 抽象）
 // 失败隔离：单服务异常只影响自身，基线行为不受影响。
@@ -200,7 +263,7 @@ try {
     telemetry.record('service.installed', { id: 'source-providers' });
   }, { deps: ['source-engine'] });
 
-  // v3.4.7 纯增量：搜索页片源中枢（关键词横向扫源 → 按片名归并成搜索页分组）。
+  // v3.4.8 纯增量：搜索页片源中枢（关键词横向扫源 → 按片名归并成搜索页分组）。
   // 只做「发现」，不做线路水合；点击分组时才走基线 findMovieFiltered 取可播地址。
   serviceRegistry.registerService('search-hub', ({ ipcMain, session }) => {
     const result = require('./search-hub.cjs').installSearchHub({

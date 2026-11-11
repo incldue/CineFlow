@@ -26,6 +26,7 @@ import { initPosterMemory } from './poster-memory.js';
 import { initScoreRollPump } from './score-roll-pump.js';
 import { initRailGlide } from './rail-glide.js';
 import { initCardTilt } from './card-tilt.js';
+import { initPlayerActionCleanup } from './player-actions-cleanup.js';
 import { initInteractionExtras, showOneshotTip } from './interaction-extras.js';
 
 const ISLAND_CLASSES = ['island-mode', 'island-expanded-mode', 'island-docked-mode'];
@@ -58,6 +59,8 @@ function mountPages(deps) {
   initRailGlide();
   // 悬停姿态跟手：卡片按指针位置做 3D 倾斜，不再是写死的固定动作。
   initCardTilt();
+  // 播放器操作栏：去掉与「外部打开」同义的「复制链接」按钮。
+  initPlayerActionCleanup();
   // 横向轨道接受滚轮 + 一次性提示（animeko NestedScrollWorkaround / OneshotTip）。
   if (initInteractionExtras()) {
     window.setTimeout(() => showOneshotTip('cf34-boost', '极速模式已启用'), 2600);

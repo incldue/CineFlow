@@ -42,7 +42,7 @@ const CHANNEL_STATUS = 'cf:searchHub:status';
 const CHANNEL_IMAGE = 'cf:searchHub:image';
 const CHANNEL_EVENT = 'cf:searchHub:progress';
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8';
 
 const state = {
   installed: false,

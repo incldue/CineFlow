@@ -195,7 +195,7 @@ function createPlaybackProxyGuard(deps) {
 
     const headers = {
       accept: req.headers.accept || '*/*',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8',
       referer: `${targetUrl.origin}/`
     };
     if (req.headers.range) headers.range = req.headers.range;

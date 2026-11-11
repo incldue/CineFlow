@@ -8,7 +8,7 @@ const REPO = 'incldue/CineFlow';
 
 const FEED_URL = String(process.env.CINEFLOW_UPDATE_FEED_URL || '').trim();
 const API_LATEST = FEED_URL || `https://api.github.com/repos/${REPO}/releases/latest`;
-const UA = 'CineFlow/3.4.7 (personal desktop app; update check)';
+const UA = 'CineFlow/3.4.8 (personal desktop app; update check)';
 const REQUEST_TIMEOUT_MS = 9000;
 const CHECK_TTL_MS = 10 * 60 * 1000;
 const FAIL_TTL_MS = 2 * 60 * 1000;

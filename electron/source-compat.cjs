@@ -527,7 +527,7 @@ async function fetchConfigText(url) {
         cache: 'no-store',
         headers: {
           accept: 'application/json, text/plain, */*',
-          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7'
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8'
         }
       });
       if (!response.ok) {

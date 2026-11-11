@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, shell, session, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, screen } = require('electron');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -1038,7 +1038,7 @@ async function fetchRemoteResourceSources(url) {
       signal: controller.signal,
       headers: {
         accept: 'application/json, text/plain, */*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7'
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8'
       }
     });
     const text = await response.text();
@@ -1338,7 +1338,7 @@ async function resourceFetchJson(source, params = {}) {
       signal: controller.signal,
       headers: {
         accept: 'application/json, text/plain, */*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7'
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8'
       }
     });
     const text = await response.text();
@@ -1577,7 +1577,7 @@ async function resolveMediaUrl(target) {
       signal: controller.signal,
       headers: {
         accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8',
         referer: `${sourceUrl.origin}/`
       }
     });
@@ -1792,7 +1792,7 @@ async function proxyMediaRequest(req, res) {
   try {
     const upstreamHeaders = {
       accept: req.headers.accept || '*/*',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8',
       referer: `${targetUrl.origin}/`
     };
     if (req.headers.range) upstreamHeaders.range = req.headers.range;
@@ -2783,7 +2783,7 @@ ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
       cache: 'no-store',
       headers: {
         accept: 'application/json, text/plain, */*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7'
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8'
       }
     });
     const elapsedMs = Date.now() - startedAt;
@@ -3062,7 +3062,7 @@ const mediaPrewarmSeen = new Map();
 function mediaWarmHeaders(sourceUrl) {
   const headers = {
     accept: '*/*',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.7'
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 CineFlow/3.4.8'
   };
   try {
     headers.referer = `${new URL(sourceUrl).origin}/`;
