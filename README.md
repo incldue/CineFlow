@@ -2,7 +2,7 @@
 
 ![CineFlow Preload](build/bg.png)
 
-流畅、可定制的桌面电影/节目推荐应用。
+流畅、可定制的桌面电影/节目推荐&播放应用。
 
 ## 简介
 
@@ -57,7 +57,7 @@
 
 ### 1. 配置 TMDB
 
-CineFlow 使用 TMDB 获取电影 / 节目元数据。首次启动后：
+CineFlow 使用TMDB获取影视元数据。首次启动后：
 
 1. 点击右上角设置按钮。
 2. 填入 TMDB v3 API Key 或 Read Access Token。
