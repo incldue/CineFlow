@@ -1,19 +1,3 @@
-/**
- * CineFlow 交互细节补丁（新增文件，零侵入）
- *
- * 一次性提示 —— 对应 ui-foundation/widgets/OneshotTip.kt：
- * localStorage 记 key，只出现一次，不重复打扰。
- *
- * ⚠️ 滚轮劫持已移除（第五十一轮）。
- *    上一版曾在 document 上以 { passive: false, capture: true } 拦截 wheel，
- *    把纵向滚轮折算成轨道的 scrollLeft。实测代价：
- *      · non-passive 监听器在捕获链上 ⇒ 合成器每次滚轮都必须先等主线程跑完；
- *      · handler 内读 scrollWidth/clientWidth/scrollLeft 再写 scrollLeft ⇒ 每格滚轮一次强制重排；
- *      · 被折算出的 scrollLeft 变更又会惊动既有的 rail scroll 监听器。
- *    实测：鼠标停在轨道上滚轮，输入→首帧 p95 达 177.8ms（顶栏处仅 28.3ms），
- *    并伴随 568 次 DOM 变更。横向轨道的滚轮便利性完全不值得这个代价，故删除。
- *    横向轨道仍可用 Shift + 滚轮、触控板横向滑动或拖拽滚动条。
- */
 
 const TIP_STORAGE_PREFIX = 'cf34-tip-';
 const TIP_DURATION_MS = 2600;
@@ -28,10 +12,6 @@ export function initInteractionExtras() {
   window.__cf34.interaction = { railWheel: false, oneshotTip: true };
   return true;
 }
-
-/* ------------------------------------------------------------------
- * 一次性提示
- * ------------------------------------------------------------------ */
 export function showOneshotTip(key, message) {
   try {
     if (!key || !message) return false;
