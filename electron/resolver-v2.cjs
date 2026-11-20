@@ -1,15 +1,5 @@
 'use strict';
-/**
- * 播放页解析增强 v2（新增文件，零触碰架构基建）。
- * 包装基线 player:resolveMediaUrl handler：基线解析失败后启用多策略提取——
- *   ① 全形态媒体正则（m3u8/mp4/mpd/…含转义与 URL 编码变体）
- *   ② player_data / __NEXT_DATA__ 等内嵌 JSON
- *   ③ escape/document.write 混淆解包
- *   ④ base64 块解码
- *   ⑤ 一级 iframe 跟随
- * 成功后自动把「播放主机 → 页面 origin」登记进防盗链头注册表（代理转发带对 Referer）。
- * 全部结果进遥测；任何异常回落基线返回值。
- */
+
 
 const telemetry = require('./telemetry.cjs');
 
