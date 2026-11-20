@@ -1,42 +1,3 @@
-/**
- * CineFlow 海报记忆层（新增文件，零侵入）
- *
- * 「首页以及分类片库的海报显示有很大延迟」——先量，不猜。
- * 逐 40ms 采样每个 .poster-frame 的 (有无 img, 已解码, opacity)，同时用
- * addScriptToEvaluateOnNewDocument 打桩记下每一次 innerHTML / appendChild：
- *
- *   89ms    personalizedRail / trendingRail 首次 appendChild 18 张卡
- *   1498ms  第 1 代海报 img 挂进 DOM
- *   1959ms  personalizedRail.innerHTML = 688B（骨架）→ '' → 逐张重挂  ← 整条轨道重建
- *   3808ms  同上，第 3 代
- *   4927ms  cf32-rail-restoring 再清空一次
- *   5609ms  第一个 .poster-frame img 终于 opacity >= 1
- *
- * 也就是说：卡片 89ms 就在，海报 5609ms 才看得见。中间那 5.5 秒里轨道被
- * 重建了 3~5 次，每一次都把 <img> 连同已解码的位图一起丢掉，海报管线
- * （queuePoster → IntersectionObserver → IPC 取图 → applyPoster）从第 0 步重来。
- * 只有最后一代活得够久，能走完这条管线。
- *
- * 基线（renderer.js / douban-fallback.js）是改不得的，所以这里做的是
- * **对重建免疫**：记住「这部片的海报字节」，重建出来的新卡片在第一帧就拿到它。
- *
- *   1) 记忆：任何 .poster-frame img 成功 load 且是 data: URL，按「片名 + 年份 +
- *      媒介」记住它。data: URL 就是图片本身，不需要再取一次。
- *   2) 回放：MutationObserver 看到新卡片插入时，若记忆里有，**同步**建 img、
- *      写 src、补 is-loaded（premium-ui 里就等于 opacity:1）。MO 回调在绘制前
- *      执行，所以首帧就是最终态 —— 不闪、不淡入、不重新解码。
- *   3) 落盘：记住的字节写进 localStorage（上限 2 MiB / 120 条），下次启动
- *      在第一次绘制前就能回放。预算 3.8 MiB / 260 条，压在 localStorage 的
- *      5 MiB 配额之下；写失败（配额满 / 隐私模式）静默降级，只少一层加速。
- *   4) 预热：只有豆瓣兜底卡片（带 [data-cf8-douban] 或 .cf8-ph）才主动取图，
- *      走的是基线同一支 IPC（window.cineflowDouban.poster → douban:poster，
- *      再 window.cineflowDouban.image → douban:image 转 base64）。
- *      TMDB 卡片只回放已见过的 data: URL，绝不凭空造图 —— 否则会把豆瓣的封面
- *      贴到 TMDB 的卡上。
- *
- * 只对「已经见过一次」的内容生效，所以首次出现仍然走基线的淡入 blur-up，
- * 观感一点没降级；后续每一次重建、切页回来、滚动折返都是直出。
- */
 
 const CACHE_ENTRIES = 600;
 const CACHE_CHARS = 40 * 1024 * 1024;
@@ -106,8 +67,6 @@ export function initPosterMemory() {
 
   let saveTimer = 0;
   function saveToDisk() {
-    // 尾部防抖：每次 remember 都重置计时，落盘的一定是「最后一次记住之后」的全量快照。
-    // 上一版是节流（定时器非空就 return），第一次 1.2s 就写盘，那时只攒到 18 条。
     if (saveTimer) window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
       saveTimer = 0;
@@ -172,10 +131,7 @@ export function initPosterMemory() {
     if (!frame) return false;
     const existing = frame.querySelector('img');
     if (existing) {
-      // 已经有图：只要它还在隐形就补一脚，让它在绘制前可见
       try {
-        // 只在「已经解码但被动画卡在不可见」时救一把：多半是 cf33-scroll 把一次性
-        // 淡入 pause 在 from{opacity:0}。正常淡入中的图不动它，观感一点不改。
         if (
           existing.complete &&
           existing.naturalWidth > 0 &&
