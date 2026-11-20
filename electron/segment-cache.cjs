@@ -1,13 +1,4 @@
 'use strict';
-/**
- * 代理分片磁盘 L2 缓存（新增文件，零触碰架构基建）。
- * 目标：拖回已看区间/回看/重开 = 毫秒级（不再重新向源站取片）。
- * 挂点：compat fetch 层（代理上游的清单/密钥/分片请求全部经过）——
- *   - 命中：直接磁盘回源（毫秒级，零网络）
- *   - 未命中：放行网络，可缓存的媒体分片响应写穿磁盘 LRU
- * 策略：仅缓存 GET 2xx 且 content-type 为视频分片/MP4 的响应；AES 加密分片按密文缓存
- * （同一 KEY 解密，无影响）；Range 以请求头并入缓存键；LRU 容量默认 512MB。
- */
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -83,7 +74,6 @@ function evictToFit(incomingBytes = 0) {
   }
 }
 
-/** 命中返回 { response }；未命中返回 null */
 async function serve(url, requestHeaders) {
   if (!state.enabled) return null;
   const key = keyOf(url, requestHeaders);
