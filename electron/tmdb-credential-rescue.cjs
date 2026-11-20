@@ -1,20 +1,4 @@
 'use strict';
-/**
- * TMDB 凭证落盘兜底（新增文件，零侵入基线）。
- *
- * 问题（实测）：应用内「粘贴密钥」走的是 tmdbAuth:grab —— 先拿剪贴板内容，
- * 再请求 https://api.themoviedb.org/3/configuration 校验，**校验不过就不写盘**。
- * 但在这台机器上代理连不到 TMDB（CONNECT 4s 超时）、系统 DNS 被污染（ECONNRESET），
- * 于是校验请求只会以"超时/连接被重置"结束 —— 用户的密钥明明是好的，却因为
- * 网络校验失败被丢弃，settings.json 里永远没有 tmdbCredential，自然进不了 TMDB 模式。
- *
- * 处理：在 bootstrap 里把这两个 handler 换成更稳的版本（removeHandler + 重注册，
- * 基线文件一行未改）：
- *   · 校验明确失败（TMDB 回 401/403）→ 仍然拒绝落盘（密钥真的无效，别骗用户）；
- *   · 校验没做完（超时/网络错误）→ **照样落盘**，只是标记 unverified，
- *     让用户至少能先存住密钥，等网络通了直接生效。
- *   · 拿到校验结果（有效）时顺带记下 images.secure_base_url，供图片域名兜底用。
- */
 
 function loadElectron() {
   try {
