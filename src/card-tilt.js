@@ -1,27 +1,3 @@
-/**
- * 卡片 3D 悬停跟随（新增文件，零侵入）
- *
- * 用户反馈：「首页下方两栏目海报的鼠标悬停动效过于生硬、僵硬」。
- *
- * 现状为什么硬：悬停时卡片只是从静止位「弹到」一个固定姿态 ——
- *   translate3d(0, -7px, 0) scale(1.045)，配 520ms 弹簧曲线。
- * 姿态是写死的，指针在卡内怎么移动都不影响它，所以视觉上卡片只是"翻个身就定住"，
- * 没有任何跟随感，看着就是机械的。
- *
- * 按 poster.txt 里那套 tvOS 焦点模型的思路补三件事（只补，不删）：
- *   1. **卡片本体 3D 倾斜**：指针在卡内的归一化位置 → rotateX / rotateY（±5° / ±6°），
- *      指针挪一点，卡片就跟一点，是连续的；这是"活"的来源；
- *   2. **进入瞬间短过渡**：悬停进出的 transform 过渡收到 180ms，
- *      跟手才有黏性；520ms 那档留给既有动效，不改它；
- *   3. **文案层反向浮动**：标题/年份与海报反向轻移 3px，卡片内部有了前后两层的读数。
- *
- * 海报本体的逆向视差（--cf-fpx / --cf-fpy）已经由 poster-focus.js 供给，
- * 前景环形高光（.poster-frame::after 的 radial-gradient + --cf-fx/--cf-fy）基线已有，
- * 本模块不重复实现，只把缺的"厚度"接上。
- *
- * 约束：pointermove 已被浏览器按帧节流，这里再包一层 rAF 合并同帧多次读写；
- * 出卡、窗口失焦、播放器全屏、掉帧降级一律清空变量回落到基线姿态。
- */
 
 const RAIL_CARD = '.movie-rail .movie-card';
 const LIT_CLASS = 'cf37-tilt';
@@ -36,20 +12,6 @@ let current = null;
 let frame = 0;
 let snapshot = null;
 let bound = false;
-
-/* 第六十四轮：pointermove 里不再读布局。
- *
- * 现场实测（开代理、软件光栅、hover 一张卡）：pointermove 的派发间隔被拉到 ~500ms，
- * 页面 events 里同时出现一次 503ms 的**纯 styleAndLayout**长帧（scripts 为空）。
- *
- * 原因就是这里：每个 pointermove 先 getBoundingClientRect()（强制同步布局，
- * 页面 843 个节点、73 个 content-visibility 元素），再写 4 个 CSS 变量；
- * poster-focus.js 在同一个事件里又读一次 rect、写 5 个变量。
- * 于是「写 → 读 → 写 → 读」每帧来回横跳，输入永远追不上指针。
- *
- * 处理（Figma / Linear 这类商用交互软件的通行做法）：矩形只在
- * pointerover / pointerenter 时读一次并缓存，滚动与窗口尺寸变化时作废；
- * 之后的 pointermove 只用缓存 + 事件坐标，一次布局都不碰。 */
 
 const rectCache = new WeakMap();
 let cacheEpoch = 0;
@@ -74,14 +36,6 @@ function reduced() {
   }
 }
 
-/**
- * 只挡「窗口拖动中」和「播放器开着」。
- *
- * 特意**不**挡 body.is-motion-throttled：那是基线 renderer.js:4157 setupPremiumMotionGuard
- * 在启动采样窗口里累计到长帧就加上、且永不移除的类，管的是闲置也在跑的常驻动画。
- * 悬停倾斜只在指针移动时写一次 transform，闲置零开销，而且它本身就是这次要修的东西 ——
- * 被那面闸门挡掉就等于「悬停依旧僵硬」原样复现。
- */
 function blocked() {
   try {
     const body = document.body;
