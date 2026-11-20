@@ -1,21 +1,3 @@
-/**
- * 首页沉浸式大海报 + 片名字标（新增文件，零侵入基线）
- *
- * 基线首页是「左文案 + 右海报」的两栏，片名是纯文字 #dailyTitle。这里补两件事，
- * 都是照着 www.movy.sx 首页 hero 的做法来的，但只做增量：
- *
- *   1) 字标（logo）：取 TMDB images 里的横版片名字标，叠在 #dailyTitle 上方；
- *      拿到并解码成功后才让文字淡出（html.cf-hero-logo-on），失败/无字标则
- *      一字不动 —— 文字标题永远在无障碍树里，零回归。
- *      选图规则与上游一致：只要 width > height，按 vote_average 降序，
- *      当前语言 → en → 任意。
- *
- *   2) 沉浸：背景层（#heroBackdrop）在宽屏下铺满 + 竖向蒙版溶解 + 横向压暗，
- *      这些全在 hero-immersive.css 里，这里只负责"背景就绪后再取字标"的时序。
- *
- * 时序很关键：字标属于锦上添花，不能跟首屏背景抢带宽。所以这里等
- * #heroBackdrop 真正有图（或 1.2s 超时）之后才发请求 —— 上游也是这么做的。
- */
 
 import './hero-immersive.css';
 
@@ -146,8 +128,6 @@ export function initHeroBillboard(deps = {}) {
     };
     waitBackdrop();
   }
-
-  // 首屏还没起来就先等一下，别和首批请求抢带宽
   const bootTimer = window.setTimeout(boot, 700);
 
   return function dispose() {
