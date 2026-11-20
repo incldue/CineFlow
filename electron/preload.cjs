@@ -130,3 +130,36 @@ contextBridge.exposeInMainWorld('cineflowSearchHub', {
   }
 });
 
+// v4.0.0 第七十轮纯增量：内置 Movy 播放源（服务器 / 画质）与 TMDB 片名字标。
+// 再单独 expose 两个全局，不动上面任何既有对象字面量；失败都只是"没有这项增强"。
+contextBridge.exposeInMainWorld('cineflowMovy', {
+  list: () => ipcRenderer.invoke('cf:m2:movy-list'),
+  sources: (payload) => ipcRenderer.invoke('cf:m2:movy-sources', payload || {}),
+  probe: (payload) => ipcRenderer.invoke('cf:m2:movy-probe', payload || {}),
+  // 预热：立刻返回，逐台结果走 cf:m2:movy-warm:progress 事件推回，渲染层永不阻塞等网络
+  warm: (payload) => ipcRenderer.invoke('cf:m2:movy-warm', payload || {}),
+  onWarm: (callback) => {
+    const listener = (_event, payload) => {
+      try { callback?.(payload); } catch { /* 渲染层异常不影响主进程 */ }
+    };
+    ipcRenderer.on('cf:m2:movy-warm:progress', listener);
+    return () => ipcRenderer.removeListener('cf:m2:movy-warm:progress', listener);
+  },
+  // 播放地址换成本地代理（主进程补 Referer/Origin，顺带绕开跨域）
+  mediaProxy: (url) => ipcRenderer.invoke('cf:m2:movy-proxy', { url }),
+  // 字幕：取 cue、按需翻译（主进程负责缓存）
+  subCues: (payload) => ipcRenderer.invoke('cf:m2:movy-sub-cues', payload || {}),
+  subTranslate: (payload) => ipcRenderer.invoke('cf:m2:movy-sub-translate', payload || {}),
+  subDiscover: (payload) => ipcRenderer.invoke('cf:m2:movy-sub-discover', payload || {}),
+  subPick: () => ipcRenderer.invoke('cf:m2:movy-sub-pick'),
+  subParse: (payload) => ipcRenderer.invoke('cf:m2:movy-sub-parse', payload || {}),
+  subOnline: (payload) => ipcRenderer.invoke('cf:m2:movy-sub-online', payload || {}),
+  subOnlineLoad: (payload) => ipcRenderer.invoke('cf:m2:movy-sub-online-load', payload || {}),
+  subStats: () => ipcRenderer.invoke('cf:m2:movy-sub-stats')
+});
+
+contextBridge.exposeInMainWorld('cineflowLogos', {
+  get: (payload) => ipcRenderer.invoke('cf:m2:logos', payload || {})
+});
+
+
