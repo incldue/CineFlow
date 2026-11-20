@@ -1,23 +1,9 @@
-/*!
- * CineFlow 顶级体验层（新增文件，由 bootstrap.cjs 在 dom-ready 注入主世界；幂等）
- * 对标 Apple TV / Netflix 的体验增强——纯增量，不改基线任何可见元素：
- *   A. 首页「继续观看」轨道（海报/进度/剩余分钟/集数徽标 + 基线"接着看"链路续播）
- *   B. 卡片进度叠加（历史匹配的卡片海报底部进度条）
- *   C. 英雄区沉浸化（backdrop 全幅 + 底部 scrim + 换图交叉淡入 + 标题分行动画）
- *   D. 轨道左右翻页按钮 + 两端渐隐
- *   E. 海报加载淡入
- *   F. 播放器体验包（倍速/画中画/下一集胶囊按钮 + 看完自动连播 + 切集黑场过渡）
- * 动效全部走既有令牌并遵守 prefers-reduced-motion 与 body.is-motion-throttled 降级。
- */
+
 (() => {
   if (window.__cfPremiumV1) return;
   window.__cfPremiumV1 = true;
   const log = (...a) => { try { console.debug('[CineFlow:Premium]', ...a); } catch { /* noop */ } };
   const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || document.body.classList.contains('is-motion-throttled');
-
-  /* ============================================================
-   * 样式（只加不改：全部为新增类名或对既有元素的无破坏性叠加）
-   * ============================================================ */
   try {
     const style = document.createElement('style');
     style.id = 'cf-premium-style';
@@ -102,9 +88,6 @@
     (document.head || document.documentElement).appendChild(style);
   } catch { /* noop */ }
 
-  /* ============================================================
-   * E. 海报加载淡入（capture load + 已加载补标记）
-   * ============================================================ */
   document.addEventListener('load', (event) => {
     const img = event.target;
     if (img instanceof HTMLImageElement && img.closest('.poster-frame')) {
@@ -123,17 +106,11 @@
     new MutationObserver(() => markLoaded(app)).observe(app, { childList: true, subtree: true });
   };
   armPosterFade();
-
-  /* ============================================================
-   * C. 英雄区沉浸化：换图交叉淡入 + 标题分行动画
-   * ============================================================ */
   const armHero = () => {
     const hero = document.getElementById('heroSection');
     const backdrop = document.getElementById('heroBackdrop');
     const title = document.getElementById('dailyTitle');
     if (!hero || !backdrop || !title) { setTimeout(armHero, 800); return; }
-
-    // 交叉淡入图层（置于基线 backdrop 之下）
     let crossfade = hero.querySelector('.cf9-hero-crossfade');
     if (!crossfade) {
       crossfade = document.createElement('div');
@@ -175,10 +152,6 @@
     log('英雄区沉浸化已装配');
   };
   armHero();
-
-  /* ============================================================
-   * D. 轨道翻页按钮 + 两端渐隐
-   * ============================================================ */
   const decorateRail = (rail) => {
     if (!(rail instanceof HTMLElement) || rail.dataset.cf9Rail === '1') return;
     const host = rail.parentElement;
@@ -220,10 +193,6 @@
     new MutationObserver(scan).observe(app, { childList: true, subtree: true });
   };
   armRails();
-
-  /* ============================================================
-   * B. 卡片进度叠加（「继续观看」轨道已按需求移除，仅保留轻量进度提示）
-   * ============================================================ */
   const HISTORY_KEY = 'cineflow:history:v3';
   const readHistory = () => {
     try {
@@ -272,10 +241,6 @@
   window.addEventListener('storage', (event) => {
     if (event.key === HISTORY_KEY) syncCardProgress();
   });
-
-  /* ============================================================
-   * F. 播放器体验包：倍速 / 画中画 / 下一集 + 自动连播 + 切集黑场
-   * ============================================================ */
   const SPEEDS = [1, 1.25, 1.5, 2, 3, 0.75];
   const getVideo = () => document.getElementById('resourcePlayer');
   const activeEpisodeButton = () => document.querySelector('#playerEpisodeList .player-episode-button.is-active');
@@ -292,7 +257,6 @@
     if (!veil || !stage.contains(veil)) {
       veil = document.createElement('div');
       veil.className = 'cf9-switch-veil';
-      // 插入为第一个子元素：基线 loader/error 面板（DOM 靠后）永远在黑膜之上
       stage.insertBefore(veil, stage.firstChild);
     }
     return veil;
@@ -302,7 +266,6 @@
     document.getElementById('playerStage')?.classList.remove('cf9-switching');
   };
   const dropVeil = () => {
-    // 任何情况下 2.6s 内强制揭膜——黑膜绝不可长驻（播放失败时必须让错误面板可见）
     clearTimeout(veilTimer);
     veilTimer = setTimeout(liftVeil, 2600);
   };
@@ -378,7 +341,6 @@
     actions.prepend(nextButton, pipButton, speedButton);
 
     ensureVeil();
-    // 黑场过渡：loadstart 落膜；playing/canplay/error/emptied 全部揭膜 + 2.6s 强制上限
     video.addEventListener('loadstart', () => {
       document.getElementById('playerStage')?.classList.add('cf9-switching');
       dropVeil();
@@ -388,7 +350,6 @@
     }
     video.addEventListener('error', () => {
       liftVeil();
-      // 服务体验：失败原因透明化（基线错误面板之上再给一条轻提示）
       setTimeout(() => {
         const message = document.querySelector('#playerError span')?.textContent?.trim();
         if (message && document.querySelector('.player-stage.has-error')) {
@@ -400,12 +361,10 @@
       if (!reducedMotion()) showNextUp();
       else nextEpisodeButton()?.click();
     });
-    // 切集时隐藏连播浮层
     document.getElementById('playerEpisodeList')?.addEventListener('click', hideNextUp);
     log('播放器体验包已装配（倍速/画中画/下一集/自动连播/黑场过渡）');
   };
 
-  /* 轻量 toast（z-index 50，安全空位内；失败原因透明化） */
   let toastNode = null;
   let toastTimer = 0;
   const showToast = (message) => {
