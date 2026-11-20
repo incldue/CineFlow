@@ -1,14 +1,6 @@
 'use strict';
-/**
- * 统一缓存层（新增文件，零触碰架构基建之一）。
- * 把散落各处的 ad-hoc Map 缓存收敛为语义一致的缓存工厂：
- *   TTL 过期 / LRU 容量淘汰 / stale-while-revalidate / 命中率统计 / 过期清扫 / dump 视图。
- * 基线 main.cjs 内的私有缓存不可迁移（零触碰）；本层先承载自有外挂模块
- * （source-engine / source-compat）的全部缓存，并通过 cf:cache.* 通道暴露全局视图。
- */
 
-const registry = new Map();   // namespace -> Cache 实例（全局视图）
-
+const registry = new Map();  
 class Cache {
   constructor({ namespace, ttlMs = 0, max = 0, stale = false } = {}) {
     this.namespace = String(namespace || 'cache');
@@ -19,8 +11,6 @@ class Cache {
     this.stats = { hits: 0, misses: 0, evictions: 0, writes: 0 };
     registry.set(this.namespace, this);
   }
-
-  /** 命中返回 { value, stale }，未命中返回 undefined */
   get(key) {
     const entry = this.store.get(key);
     if (!entry) {
@@ -36,7 +26,7 @@ class Cache {
       this.stats.misses += 1;
       return undefined;
     }
-    this.store.delete(key);                    // LRU 触碰：移到 Map 尾部
+    this.store.delete(key);           
     this.store.set(key, entry);
     this.stats.hits += 1;
     return { value: entry.value, stale: false };
@@ -47,7 +37,6 @@ class Cache {
     return entry ? { value: entry.value, expired: entry.expiresAt <= Date.now() } : undefined;
   }
 
-  /** ttlMs 可按条目覆盖（未传时用缓存默认 TTL；0/undefined + 默认 0 = 永不过期） */
   set(key, value, ttlMs) {
     if (this.max && !this.store.has(key)) {
       while (this.store.size >= this.max) {
