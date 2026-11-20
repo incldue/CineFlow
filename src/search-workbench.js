@@ -1,19 +1,3 @@
-/**
- * CineFlow 搜索页工作台（新增文件，零侵入）。
- *
- * 设计来源：C:\Users\debu8ger\Desktop\coding项目\search（Lumina Films / Compose）。
- *   SearchViewModel.kt  → 逐源状态机 SourceState{Waiting,Loading,Done,Failed} + latencyMs/count
- *   SearchScreen.kt     → SourceStrip 源健康条 / ResultRow 分组行 / 空态 + 主行动按钮 / 骨架
- *   SearchResultsScreen → 顶栏标题 + 副标题口径 + 「换个关键词」回退
- *
- * 与 CineFlow 基线的边界：
- *   - 只在 #searchSection 之后插入自己的 <section id="cf25SearchHub">，#searchSection 一字不动。
- *   - 只旁听 #globalSearch 的 Enter，不 dispatch 任何合成事件，不阻断基线行为。
- *   - 播放只走基线已暴露的 window.__cineflowOpenResourcePlayer。
- *   - 点「相关」不再退出搜索页：TMDB 命中 → 侧栏详情在搜索页之上滑出（复用基线 openDetails/closeDetails）；
- *     TMDB 未命中 → 复用豆瓣兜底详情卡（复用其 ×/背景点击收回逻辑）。
- *   - 任何异常都被 try/catch 吞掉并静默降级，基线搜索不受影响。
- */
 
 import { openDoubanSheet } from './douban-fallback.js';
 
@@ -22,15 +6,15 @@ const LIFT_CLASS = 'cf25-detail-lift';   // 临时把 #detailPanel 抬到搜索�
 const HISTORY_KEY = 'cineflow:search-history:v2';
 const ISLAND_CLASSES = ['island-mode', 'island-expanded-mode', 'island-docked-mode'];
 
-const DEBOUNCE_MS = 320;          // 与基线 setupSearch / Lumina debounce(320) 同频
-const FAST_LATENCY_MS = 900;      // Lumina：< 900ms 判 Ok
+const DEBOUNCE_MS = 320;          
+const FAST_LATENCY_MS = 900;   
 const MID_LATENCY_MS = 2000;
-const MAX_CHIPS = 4;              // Lumina ResultRow: hits.take(4)
+const MAX_CHIPS = 4;             
 const HISTORY_LIMIT = 8;
-const POSTER_CONCURRENCY = 4;     // 海报中转并发（主进程另有 8 路硬上限）
-const POSTER_MAX_PER_TURN = 24;   // 一次搜索最多解析多少张，防止极端结果集打爆
-const PLAY_WAIT_MS = 6000;        // 点击 chip → 等基线聚合吐出可播线路的总预算
-const PLAY_POLL_MS = 240;         // 轮询间隔（基线是渐进分批，太快只会拿到同一份快照）
+const POSTER_CONCURRENCY = 4;     
+const POSTER_MAX_PER_TURN = 24;   
+const PLAY_WAIT_MS = 6000;       
+const PLAY_POLL_MS = 240;    
 
 const els = {
   panel: null,
@@ -70,8 +54,6 @@ const hub = {
 
 let deps = {};
 
-/* ============ 小工具 ============ */
-
 function esc(value) {
   if (typeof deps.escapeHtml === 'function') {
     try { return deps.escapeHtml(value); } catch { /* 落到本地实现 */ }
@@ -110,20 +92,6 @@ function latencyText(latencyMs) {
   return latencyMs >= 1000 ? (latencyMs / 1000).toFixed(1) + 's' : Math.round(latencyMs) + 'ms';
 }
 
-/* ============ 面板构建 ============ */
-
-/**
- * 面板挂到 #app 的直接子节点，而不是 #searchSection 之后。
- *
- * 原因（第五十九轮实测）：搜索页是 position:fixed，但 #searchSection 在 main.app-shell 里，
- * 而 .app-shell 是 position:relative + z-index:1 自成一层的层叠上下文 —— 子元素的
- * z-index:63 被整体钳进第 1 层，永远压在 .cf3-stage（z-index:28）之下。
- * 于是首页（stage 全透明）能看见磨砂搜索页，切到分类片库（stage 铺满不透明）就只剩
- * 搜索记录气泡（.cf7-history，z-index:31）。
- *
- * 挂到 #app 直接子节点后，与 .cf3-stage(28)、搜索记录气泡(31)、#detailPanel(30) 同层比较，
- * 层次由末尾那条 cf40 规则钉在 29：盖住片库/历史页，又不遮住搜索记录气泡 —— 与首页完全一致。
- */
 function buildPanel() {
   const existing = document.getElementById(PANEL_ID);
   if (existing) return existing;
@@ -176,8 +144,6 @@ function buildPanel() {
 const FADE_OUT_MS = 170;
 
 function keepOnTop() {
-  // 页面切换/其它模块往 #app 里追加节点后，重新挂一次保持它是 #app 的最后一个直接子节点；
-  // 真正决定层次的是 CSS 里 #app > .cf25-hub 的 z-index，不靠 DOM 顺序。
   try {
     const host = document.getElementById('app');
     if (host && els.panel && els.panel.parentElement !== host) host.appendChild(els.panel);
@@ -193,9 +159,6 @@ function show() {
   hub.visible = true;
   els.panel.classList.remove('is-hidden');
   els.panel.setAttribute('aria-hidden', 'false');
-  // 下一帧再挂 is-open，让 CSS transition 有起点（毫秒级但不闪）。
-  // 窗口被遮挡/最小化时 rAF 会被整体节流（不产生帧），那样 is-open 永远挂不上、
-  // 面板会停在 opacity:0 —— 加一个 32ms 兜底定时器保证状态一定收口。
   let opened = false;
   const markOpen = () => {
     if (opened) return;
@@ -205,11 +168,6 @@ function show() {
   requestAnimationFrame(markOpen);
   window.setTimeout(markOpen, 32);
 }
-
-/**
- * 收起：先摘 is-open 走 0.17s 淡出，淡完再 display:none。
- * （若同时加 is-hidden，display:none 会直接掐掉 transition，观感是"啪一下没了"。）
- */
 function hide({ keepState = false } = {}) {
   if (!els.panel) return;
   const wasVisible = hub.visible;
@@ -327,25 +285,6 @@ function renderGroups() {
   scanPosters();
 }
 
-
-/* ============ 海报中转加载 ============ */
-
-/**
- * 渲染层 origin 是 file://，源站图床（dytt-tupian / imgzy360 …）一律拒热链，
- * 直接给 <img src> 赋远程地址必然 onerror。改为逐张请主进程取字节转 data URL：
- *   - 并发 4，避免一次搜索打出几十个占坑请求；
- *   - 一次搜索最多解析 POSTER_MAX_PER_TURN 张；
- *   - 同 URL 在本次会话内只解析一次（hub.posterResolved）；
- *   - 任何一张失败都只是把占位文案改成「暂无海报」，绝不影响分组卡本身。
- */
-/**
- * 入队一张海报。
- *
- * 关键：renderGroups 每个进度事件都会整体重渲染，同一张图的 DOM 节点是新的。
- * 如果按"节点是否入过队"计数，一次搜索会被重复计数几十次、预算（24）瞬间烧光，
- * 后出现的分组永远排不到 —— 这就是「有的内容还是没海报」的根因。
- * 因此改成按 **URL** 去重与计数：已在飞/已在缓存里的直接跳过。
- */
 function enqueuePoster(imgEl) {
   if (!imgEl) return;
   const url = imgEl.getAttribute('data-cf25-img') || '';
@@ -434,11 +373,6 @@ function scanPosters() {
   });
 }
 
-/**
- * 搜索收口后的补救扫描。
- * 预算（POSTER_MAX_PER_TURN）是防打爆源站的上限，但收口后结果集就固定了，
- * 此时把预算放开再扫一遍，保证「只要源站有图就一定补上」。
- */
 function flushPosters() {
   if (!els.groups) return;
   for (const node of els.groups.querySelectorAll('img[data-cf25-img]')) {
@@ -672,36 +606,10 @@ function mergeHits(hits) {
   rebuildViewGroups();
 }
 
-/* ============ 展示层：影视口径 ============ */
-
-/**
- * 片源口径 vs 展示口径 —— 为什么必须分开
- *
- *   片源检索那套（主进程 pickHits / resourceCandidateScore）是为「一部影片挑唯一可播资源」设计的：
- *   40 分阈值、每源一条、按 vod_id 去重、按「同名同类型」归并。
- *   直接拿它当搜索页的展示列表，屏幕上就会出现三类毛病：
- *
- *     1. 同一部影视被拆成多行 —— 「寄生虫 / 寄生虫国语 / 寄生虫 기생충」各占一行，
- *        因为版本后缀进了归一化键，片源数被摊薄；
- *     2. 类型串味就分裂 —— 「寄生虫保姆 2025·短剧」与「寄生虫保姆 ·爽文短剧」两行，
- *        只因为其中一个源没填年份；
- *     3. 源站脏数据直接上屏 —— 多片名拼接（「A$B」）原样显示成一整行。
- *
- *   展示层只做「归并 + 排序 + 清洗」，**不重新打分、不丢片源**：
- *   归一化口径继续复用基线的 normalizeResourceTitle（主进程已经把 group.key 算好），
- *   这里只在它之上补版本后缀归并与影视级合并，任何一条命中都不会因为展示层而消失。
- */
-
-/** 版本/语言后缀：只剥「同一部片的不同版本」，不剥续集与番外 */
 const VERSION_SUFFIX = /(国语|粤语|英语|原声|中字|中文字幕|双字|国粤双语|双语|高清|超清|蓝光|完整版|未删减版?|加长版|抢先版|枪版|特别版|特别篇|纪念版|周年纪念版|导演剪辑版|hd|bd|4k|1080p|2160p)+$/i;
 
-/** 结尾短括号限定：流浪地球(特别版) / 三体（网飞版） → 归到正主 */
 const TRAILING_PAREN = /[（(]\s*([^（）()]{1,8})\s*[)）]\s*$/;
-
-/** 中英/中日双名：寄生虫 기생충 → 寄生虫（只在后段完全无中文时才剥离） */
 const FOREIGN_ALIAS = /^(.*[\u4e00-\u9fff])\s+([^\u4e00-\u9fff]{2,})$/;
-
-/** 源站脏数据：多片名拼接（A$B、A|B）与换行 */
 function cleanDisplayTitle(title) {
   const raw = String(title || '');
   const head = raw.split(/[$|\n\r]/)[0] || '';
@@ -811,8 +719,6 @@ function rawTitleOf(members, fallback) {
   }
   return best || fallback;
 }
-
-/** 展示口径的 key 只在展示列表里有效，找不到再回落到片源口径 */
 function findGroup(key) {
   if (!key) return null;
   return hub.viewGroups.find((item) => item.key === key)
@@ -820,18 +726,6 @@ function findGroup(key) {
     || null;
 }
 
-/* ============ 「相关」：在搜索页之上打开详情 ============ */
-
-/**
- * 「相关」：**不再退出搜索页**。
- *
- *   - 影片在 TMDB 元数据里 → 侧栏详情在搜索页之上从右侧滑出（复用基线 openDetails，
- *     收回复用基线 closeDetails：拉手 / 关闭按钮 / Escape 都是基线自己的逻辑）；
- *   - 影片不在 TMDB 里（含未配置凭证）→ 复用豆瓣兜底详情卡（含它自己的 ×/背景点击收回）。
- *
- * 两条路都不改基线：只加一个 body 类把 #detailPanel 的层级临时抬到搜索页之上，
- * 面板一收（基线自己摘 is-open）就立刻把类摘掉。
- */
 function exitToRelated(group) {
   cancelRunning();
   bumpSearchId();
@@ -969,12 +863,6 @@ async function resolveMovie(group) {
   return bestScore > 0 ? best : (rows.length === 1 ? rows[0] : null);
 }
 
-/**
- * 降级路径：派发一次基线搜索，等卡片出现后点它。
- * 若 1.4s 内既没解析到 TMDB 条目、也没等到卡片（典型场景：未配置 TMDB 凭证），
- * 仍然把侧栏详情面板展开 —— 面板内容由基线自己决定（它会渲染自己的错误/占位），
- * 但「退出搜索页 + 展开侧栏」这个动作必须完成，否则用户会卡在空搜索页上。
- */
 function fallbackToRail(group) {
   const input = inputEl();
   if (input) {
@@ -1084,11 +972,6 @@ function onClick(event) {
   if (!String(queryNow()).trim() && !overlayDetailOpen()) dismissSearchPage();
 }
 
-/**
- * 取可播地址：基线 findMovieResources 是渐进分批的（cursor + done），
- * 首包通常 resources 为空、checked 才 1/total —— 必须按 cursor 轮询到命中或 done。
- * 上限 6 轮（≈ 基线详情页同款节奏），任意一轮命中就立刻用。
- */
 async function fetchPlayable(payload, preferredSourceKey) {
   const api = deps.api;
   const startedAt = Date.now();
@@ -1221,12 +1104,6 @@ function scheduleSearch(query) {
   }, DEBOUNCE_MS);
 }
 
-/**
- * 监听挂在 window 捕获阶段：捕获顺序 window → document → … → target，
- * 因此本监听一定早于 dual-search.js 注册在 document 上的捕获监听执行。
- * dual-search 在自然语言场景会 stopImmediatePropagation，那样 document 级监听全被掐断，
- * 挂 window 才能保证 Enter 一定被我们看到。仍然不 preventDefault / 不 stopPropagation。
- */
 function bindInput() {
   window.addEventListener('input', (event) => {
     const input = inputEl();
@@ -1309,11 +1186,6 @@ function showEmptyQueryState() {
   show();
 }
 
-/**
- * Enter 立即响应：先把面板 + 逐源等待态铺出来（0ms，纯 DOM），再发 IPC。
- * 用户按 Enter 的下一帧就能看到「搜索页已打开、8 个源正在转圈」，
- * 真正的网络结果靠 cf:searchHub:progress 事件流式填进来 —— 体感上就是毫秒级。
- */
 function scheduleSearchNow(query) {
   window.clearTimeout(hub.settleTimer);
   hub.settleTimer = window.setTimeout(() => {
