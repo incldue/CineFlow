@@ -1,23 +1,3 @@
-/**
- * CineFlow 骨架屏门控（新增文件，零侵入）
- *
- * 出处：animeko ui-foundation/widgets/FastLinearProgressIndicator.kt
- *
- *   fun setVisible(visible, delayMillis = 100L, minimumDurationMillis = 1500)
- *   注释原文：「延迟 delayMillis 毫秒后才开始显示进度条. 如果在这个时间内 visible
- *   变为 false, 则不会显示进度条.」—— 也就是「100ms 内做完的事，不闪骨架屏」。
- *
- * CineFlow 的问题：本地/热缓存命中时搜索往往 40~90ms 就回来了，骨架屏却照常
- * 插入再移除，屏幕上闪一下 —— 观感上比等待更难受。
- *
- * 这里只搬「延迟展示」那一半。animeko 的 minimumDurationMillis = 1500 是故意
- * 拖慢以保证动效可读，与「极致迅速」冲突，有意不搬（记录在 RELEASE_NOTES）。
- *
- * 实现方式：纯 CSS 负责「延迟 100ms 再淡入」这条时间线（见 styles.css cf34 块
- * 的第一节），保证即使本模块整个失败，骨架屏也只是延迟 100ms 出现，不会消失。
- * 本模块只做一件 CSS 做不到的事：认出「这个容器第一次就是秒回」的站点，
- * 后续同类容器直接取消延迟，避免每次都白等 100ms。
- */
 
 const SKELETON_SELECTOR = '.skeleton, .cf25-skeleton, .skeleton-detail, .cf25-skeleton-row';
 const FAST_WINDOW_MS = 100;
