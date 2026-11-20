@@ -1,25 +1,10 @@
 'use strict';
-/**
- * CineFlow 搜索页片源中枢（新增文件，零侵入）。
- *
- * 与基线 / 聚合引擎的分工：
- *   - 基线 resources:findMovie / resources:findMovieFiltered：给定「一部已知片子」找它能播的线路，
- *     每源只交付**最佳一条**（source-engine.cjs 的 processTitle 返回首个 compact）。
- *   - 本模块：给定「一个关键词」横向扫全部源，每源返回**多条命中**，供搜索页按片名归并成
- *     「一部片子出现在 N 个片源」的分组视图。只做发现，不做线路水合（点击时才走基线取可播地址）。
- *
- * 复用而非复制：选源、标题归一化、候选打分全部用 source-engine.cjs 已导出的 _internals 纯函数；
- * 网络层用 session.defaultSession.fetch，自动继承 source-compat.cjs 的兼容层
- * （XML→JSON / GBK / base64 / 相对 URL / 防盗链 Referer）。
- * 基线任何文件不做改动；本模块安装失败时搜索页静默隐藏，基线搜索不受影响。
- */
+
 
 const { _internals: engineInternals } = require('./source-engine.cjs');
 
 /* ---- 预算 / 并发 ---- */
 const HUB_POOL = 8;
-// 与基线 source-engine 口径一致：单源 5s 预算、请求 6.5s 超时。
-// 实测 3.2s 会让偏远源（暴风/量子/1080）成片超时，命中率明显下降。
 const PER_SOURCE_BUDGET_MS = 5000;
 const PER_REQUEST_TIMEOUT_MS = 6500;
 const PER_SOURCE_HITS = 8;
@@ -29,8 +14,6 @@ const MAX_GROUPS = 80;
 const POSITIVE_TTL_MS = 4 * 60 * 1000;
 const NEGATIVE_TTL_MS = 90 * 1000;
 const CACHE_MAX = 40;
-
-/* ---- 海报中转（渲染层跑在 file:// origin，源站图片拒热链，必须由主进程取字节） ---- */
 const IMAGE_TTL_MS = 30 * 60 * 1000;
 const IMAGE_CACHE_MAX = 240;
 const IMAGE_MAX_BYTES = 6 * 1024 * 1024;
@@ -61,15 +44,6 @@ function log(...args) {
   try { state.log(...args); } catch { /* 日志自身异常不外泄 */ }
 }
 
-/* ============ 词条归一化（复用基线口径） ============ */
-
-/**
- * 片名归一化：比基线 normalizeResourceTitle 多做三件搜索页才需要的事
- *   1. 剥掉括号里的年份 —— 「寄生虫 (2019)」与「寄生虫」必须归到同一组
- *   2. 剥掉短括号标记 —— 【中字】[国语]（第2季）这类区间式标注
- *   3. 剥掉结尾裸年份 —— 「寄生虫2019」
- * 兜底：若剥完为空（例如整条片名被【】包起来），退回基线口径，绝不丢条目。
- */
 function normTitle(value) {
   const raw = String(value || '');
   try {
@@ -129,13 +103,6 @@ async function fetchVideolist(source, query, timeoutMs) {
   }
 }
 
-/* ============ 命中抽取 ============ */
-
-/**
- * 单源命中提取：宽松阈值（发现层不是精确检索口径）。
- * 打分复用基线 resourceCandidateScore（含「解说/预告/花絮 → -80」「体育 → -36」等既有惩罚），
- * 阈值 40 等价于「标题完全一致 / 前缀一致 / 长标题包含」，排除纯噪声。
- */
 function pickHits(source, items, query, latencyMs) {
   const hits = [];
   const seen = new Set();
@@ -378,18 +345,6 @@ async function statusHandler() {
   };
 }
 
-
-/* ============ 海报中转 ============ */
-
-/**
- * 渲染层跑在 file:// origin，源站海报（dytt-tupian / imgzy360 …）一律拒热链，
- * 直接在 <img src> 里引用必然 error。这里由主进程取字节转成 data URL 回传：
- *   - 走 session.defaultSession.fetch，自动继承 source-compat 的 Referer 表与证书宽容；
- *   - 显式带 Referer（优先调用方给的源站 origin，否则用图片自己的 origin），
- *     这是绕过绝大多数 CMS 图床防盗链的关键；
- *   - host 级并发限流 8，避免一次搜索打出几十个并发图请求；
- *   - 30min / 240 条缓存，重复搜索不再取字节。
- */
 function imageCacheKey(url, referer) {
   return String(referer || '') + '|' + String(url || '');
 }
