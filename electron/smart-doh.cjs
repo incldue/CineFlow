@@ -1,28 +1,4 @@
 'use strict';
-/**
- * CineFlow Smart DoH 中继（新增文件，零触碰基线）。
- *
- * 背景（2026-10 实测）：
- *   - 3.4.4 基线 doh.cjs 是「单上游 JSON-DoH 客户端」，默认上游 arkdo.ddd.oaifree.com
- *     在无代理网络下不可达或返回污染答案 → 端点熔断 → meta-server 放弃接管 →
- *     api.themoviedb.org 走系统 DNS（污染）→ 渲染层软超时 → 会话永久跌落豆瓣兜底。
- *   - edge-smart-doh（https://github.com/1molchuan/edge-smart-doh，公开实例
- *     edge.1molchuan.top）：部署在 Cloudflare Workers 的 RFC8484 DoH，
- *     对 Cloudflare 托管域返回「按运营商实测的优选边缘 IP」，其余域原样返回
- *     （上游为境外干净递归）→ 对 TMDB 域给出的是无污染真实解析；
- *     实测无代理直连可达（200-290ms），api.themoviedb.org → CloudFront 108.138.246.x
- *     直连 TLS+SNI 成功拿到 TMDB 业务响应。但它只说 wireformat，不说 JSON。
- *
- * 方案：本文件在 127.0.0.1 起一个极小的 JSON-DoH 端点，doh.cjs（逐字节保持 3.4.4 原版，
- * 其 env CINEFLOW_DOH_ENDPOINT 在模块加载时读取）由 bootstrap 在 require('./main.cjs')
- * 之前指向这里。上游链（带健康轮换）：
- *   1. 用户自配（userData/doh-upstream.txt 单行 URL，协议自动探测）——可指向自部署实例
- *   2. edge-smart-doh 公开实例（wireformat，干净递归 + CF 优选改写）
- *   3. 阿里 DNS（dns.alidns.com/resolve，JSON；国内秒回，非封锁域干净）
- *   4. arkdo（3.4.4 原默认，JSON）
- * 任何一层成功即返回；连续 3 次失败熔断 20s。中继启动失败 → 不设 env →
- * 基线行为与 3.4.4 完全一致（默认 arkdo）。
- */
 
 const http = require('node:http');
 const https = require('node:https');
@@ -44,8 +20,6 @@ const KEEP_ALIVE_AGENT = new https.Agent({
   maxSockets: 16,
   timeout: 30000
 });
-
-/* ============ DNS wireformat（RFC8484 查询构造 / 应答解析，A/AAAA） ============ */
 
 function buildDnsQuery(name, type) {
   const labels = String(name || '').replace(/\.$/, '').split('.');
@@ -323,7 +297,6 @@ function startSmartDoh(options = {}) {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       const endpoint = `http://127.0.0.1:${port}/resolve`;
-      // unref：中继不独自维持进程生命周期（Electron 应用本身持有事件循环；测试进程可自然退出）
       if (typeof server.unref === 'function') server.unref();
       log(`中继就绪 ${endpoint} → 上游: ${upstreams.map((u) => u.label).join(' → ')}`);
       finish(endpoint);
