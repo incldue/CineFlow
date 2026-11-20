@@ -2,10 +2,8 @@
 const RAIL_CARD = '.movie-rail .movie-card';
 const LIT_CLASS = 'cf37-tilt';
 const READY_FLAG = 'cf37CardTilt';
-/** 3D 倾斜上限：178px 宽的卡片上，5°/6° 已经是明显而不夸张的厚度。 */
 const MAX_RX = 5;
 const MAX_RY = 6;
-/** 文案层反向位移上限（px）。 */
 const MAX_COPY = 3;
 
 let current = null;
@@ -76,7 +74,6 @@ function apply() {
   try {
     if (card.isConnected === false) { reset(); return; }
     card.classList.add(LIT_CLASS);
-    // 亚像素级抖动不重写：写一次 CSS 变量就是一次样式失效，值没变就别动。
     const rx = shot.rx.toFixed(2);
     const ry = shot.ry.toFixed(2);
     const cx = shot.cx.toFixed(2);
@@ -118,16 +115,13 @@ function onPointerMove(event) {
 
     current = card;
     snapshot = {
-      // 指针在上半张 → 卡片顶边朝观者压下来（rotateX 正向），是自然的"看进去"
       rx: ny * MAX_RX,
-      // 指针在右侧 → 右边缘后退（rotateY 正向），卡片像是被扭头看向指针
       ry: -nx * MAX_RY,
       cx: -nx * MAX_COPY,
       cy: -ny * MAX_COPY
     };
     schedule();
   } catch (error) {
-    /* 极致降级：忽略本次移动 */
   }
 }
 
@@ -137,9 +131,6 @@ function onPointerOut(event) {
     if (!card) return;
     const related = event.relatedTarget;
     if (related instanceof Node && card.contains(related)) return;
-
-    // 海报 img 替换占位节点时会补发一次 pointerout，relatedTarget 为 null。
-    // 用坐标复核：指针其实还压在卡上就别收。
     const x = event.clientX;
     const y = event.clientY;
     if (typeof x === 'number' && typeof y === 'number' && (x || y)) {
@@ -174,8 +165,6 @@ function bind() {
     return false;
   }
 }
-
-/** 装配入口，由 src/incremental-pages.js 一行调用；重复调用安全。 */
 export function initCardTilt() {
   try {
     return bind();
