@@ -1,11 +1,4 @@
 'use strict';
-/**
- * CineFlow × rec-engine 适配宿主（新增文件，零侵入集成）
- * 职责：引擎生命周期、TMDB/豆瓣卡片 ↔ 引擎物料映射、rec:* IPC、行为事件接入、存量偏好迁移。
- * 引擎物料 id 统一使用 CineFlow 的 contentKey（movie:123 / tv:456 / douban:1292052），
- * 推荐结果在本层映射回 CineFlow 卡片形状，渲染层零转换。
- * 设计为依赖注入式（initRecommender({ app, ipcMain })），可在纯 Node 下用 mock 冒烟。
- */
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -30,17 +23,11 @@ function contentKeyOf(mediaType, id) {
   return `${mediaType === 'tv' ? 'tv' : 'movie'}:${id}`;
 }
 
-/**
- * Electron 33 的 ESM 动态 import 不支持 asar 内文件:
- * 打包时 rec-engine/dist 由 asarUnpack 解包到 app.asar.unpacked, 此处重映射真实路径。
- * 开发态(无 asar)路径不变。
- */
 function asarReal(p) {
   if (!p || !p.includes('app.asar') || p.includes('app.asar.unpacked')) return p;
   return p.replace('app.asar', 'app.asar.unpacked');
 }
 
-/** 顺序保留的类型名合并（去重），供 genres 字符串与 genreIds 解析结果对齐 */
 function mergeGenres(a = [], b = []) {
   const out = [];
   const seen = new Set();
@@ -53,7 +40,6 @@ function mergeGenres(a = [], b = []) {
   return out;
 }
 
-/** 物料字段级合并：点击卡片携带的薄元数据不得覆盖已有富元数据（类型/简介/演员/评分） */
 function mergeItemMeta(prev, next) {
   if (!prev) return next;
   const merged = { ...prev, ...next };
@@ -150,12 +136,6 @@ function itemToCard(meta) {
   };
 }
 
-/**
- * 引擎初始化守护：工件目录不可写（杀软占用 / 目录权限 / 并发句柄）时，
- * 原实现会让 init() 在 ensureArtifactDir() 抛错，进而把整块推荐+埋点静默停用。
- * 这里改为降级为纯内存模式继续跑：召回、画像、重排全部可用，只是工件不落盘。
- * 一切正常时行为与原来完全一致（首次 init 成功即返回）。
- */
 function initEngineResilient(engine, log) {
   try {
     return engine.init();
@@ -184,11 +164,6 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
     log
   );
   const state = { eventsSinceRebuild: 0, lastRebuildAt: Date.now() };
-
-  /* ---------- 存量物料迁移（一次性，版本号幂等） ---------- */
-  // 3.4.6 及以前入库的 items.json 里 genres 全是 []（卡片只带 genreIds，宿主没解析），
-  // 导致 TagChannel 空跑、画像 genreWeights 空、重排 Jaccard 退化为常数。
-  // 这里按 schema 版本做一次：能从 extra.genreIds 还原的先还原，然后强制重建工件。
   const CATALOG_SCHEMA_VERSION = 2;
   const schemaPath = path.join(dataDir, 'catalog-schema.json');
 
