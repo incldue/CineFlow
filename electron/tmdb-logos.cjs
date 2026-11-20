@@ -1,18 +1,4 @@
 'use strict';
-/**
- * TMDB 片名字标（logo）取图（新增文件，零触碰基线）
- *
- * 为什么单开通道：基线 tmdb:details 的 append_to_response 是
- * credits,recommendations,similar,videos —— 不含 images，所以拿不到字标。
- * 这里只做一件事：/{type}/{id}/images → 按上游同一套规则挑一张横向字标。
- *
- * 挑选规则（与 www.movy.sx 首页 hero 完全一致，逐条对齐）：
- *   · 只要 width > height 的横向图（竖版是堆叠片名，塞进横幅会变形）
- *   · 按 vote_average 降序
- *   · 优先当前语言 → 其次 en → 再次任意
- *
- * 结果落盘 7 天。失败一律返回 { ok:false }，渲染层据此保留文字标题（零回归）。
- */
 
 const fsp = require('node:fs');
 const path = require('node:path');
