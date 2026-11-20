@@ -1,23 +1,14 @@
-/*!
- * CineFlow 推荐引擎渲染层增强（新增文件，由 bootstrap.cjs 在 dom-ready 经 executeJavaScript 注入主世界）
- * 幂等可重入；所有引擎调用异常均静默降级为原生行为。
- * 模块：
- *   1. 切页流畅度：运行时 CSS（content-visibility/合成层）+ 自适应动效降级（只加不减，配合应用自身 motion guard）
- *   2. 闲时预热：片库默认筛选/豆瓣热门接口预热 + 海报预解码
- *   3. 行为采集：卡片点击捕获 + localStorage 偏好/历史 diff → rec:track（含豆瓣 cf8 独立命名空间）
- *   4. 存量迁移：首次把 prefs/播放历史整体迁移为引擎事件（seed）
- *   5. 推荐输出：#personalizedRail / 详情相似区块增强（DOM 同构接管，原生点击委托继续生效）
- */
+
 (() => {
   if (window.__cfRecV1) return;
   window.__cfRecV1 = true;
 
   const TAG = '[CineFlow:Rec]';
-  const api = window.cineflowRec || null;         // 额外 preload 暴露（可能缺失 → 仅性能部分生效）
-  const cf = window.cineflow || null;             // 应用原生桥
+  const api = window.cineflowRec || null;         
+  const cf = window.cineflow || null;   
   const TMDB_IMG = 'https://image.tmdb.org/t/p';
   const SEED_FLAG = 'cineflow:rec:v1';
-  const FINISHED_RATIO = 0.96;                    // 与 history-page.js 已看完阈值一致
+  const FINISHED_RATIO = 0.96;            
   const HOME_PAGE_SIZE = 24;
 
   const log = (...a) => { try { console.debug(TAG, ...a); } catch { /* noop */ } };
@@ -33,8 +24,6 @@
     `;
     (document.head || document.documentElement).appendChild(style);
   } catch { /* noop */ }
-
-  // 自适应动效降级: 持续掉帧时启用应用自带的 is-motion-throttled(只加不减, 不与应用自身的 motion guard 冲突)
   {
     let last = performance.now();
     let longFrames = 0;
@@ -92,12 +81,6 @@
       } catch { /* noop */ }
     }, 4000);
   }
-
-  /* ============ 2.5 搜索救援（豆瓣兜底接入搜索路径, 无 rec 桥也生效） ============
-     根因: 搜索只走 TMDB(tmdb:search), 无凭证时 buildTmdbUrl 抛 MISSING_TMDB_CREDENTIAL,
-     渲染层 .catch(()=>[]) 吞成空数组只剩空态文案; 豆瓣 search 桥从未被接入。
-     本模块自我让位式触发: 仅当搜索区可见、有查询词、rail 为空态且无任何结果卡时,
-     并发查豆瓣电影+剧集, 渲染与 douban-fallback 同构的 cf8 卡片(点击代理自动接管)。 */
   function startSearchRescue() {
     const douban = window.cineflowDouban;
     if (!douban || typeof douban.search !== 'function') return;
@@ -134,7 +117,6 @@
         <h3>${esc(item.title)}</h3>
         <p>${esc(item.year || '豆瓣条目')}</p>
       `;
-      // 与 douban-fallback 的 __cf8Item 同构: 既有 document 级点击代理会自动打开豆瓣资料页
       card.__cf8Item = {
         id: item.id,
         title: item.title,
