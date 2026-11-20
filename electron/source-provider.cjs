@@ -1,11 +1,4 @@
 'use strict';
-/**
- * Source 统一抽象（新增文件，零触碰架构基建之五）。
- * 统一 { id, kind, capabilities, search, health } 契约，把「CMS JSON 源」与
- * 「豆瓣分类」两类已落地的数据面接入同一接口——为未来 spider/直播源铺路：
- * 新增数据面 = 注册一个适配器，而不是改任何链路。
- * cf:sources.list / cf:sources.search 提供自省与诊断检索。
- */
 
 const telemetry = require('./telemetry.cjs');
 
@@ -42,7 +35,6 @@ async function searchAll(payload, { limit = 3 } = {}) {
   return out;
 }
 
-/** 适配器：CMS JSON 源（包装聚合引擎的单源搜索） */
 function createCmsJsonSource({ id, name, searchSource }) {
   return {
     id,
@@ -65,7 +57,6 @@ function createCmsJsonSource({ id, name, searchSource }) {
   };
 }
 
-/** 适配器：豆瓣分类（包装 rexxar recent_hot） */
 function createDoubanCategorySource({ id, fetchDoubanRecentHot }) {
   return {
     id,
