@@ -1,18 +1,3 @@
-/**
- * Apple tvOS 焦点 / 视差（focus & parallax）海报动效。
- *
- * 参照 tvOS 人机界面规范里「焦点引擎 + 视差」的两条核心感受：
- *   1. **焦点抬升**：被指向的卡片轻微放大、浮起，阴影加深并扩散 —— 视线的锚点从"一排卡片"收成"这一张"；
- *   2. **视差景深**：卡片内部不是一块贴图，而是分层的。指针移动时，前景（高光/描边）跟手，
- *      背景（海报本体）逆向小幅度偏移，中间层按不同速率跟随，于是产生"海报有厚度"的错觉。
- *
- * 本模块只负责把指针位置换算成两组 CSS 变量喂给样式层，不做任何结构改动、不接管点击：
- *   --cf-fx / --cf-fy   : 归一化指针位置（-1 ~ 1），供高光/描边使用
- *   --cf-fpx / --cf-fpy : 海报本体的逆向视差位移（px），供 img 使用
- *   --cf-fz             : 景深强度（0~1），供阴影与亮度使用
- *
- * 约束：失败一律静默降级 —— 这里只是装饰，任何异常都不能影响点击、滚动与播放。
- */
 
 const CARD_SELECTOR = '.movie-card';
 const LIT_CLASS = 'is-focus-lit';
@@ -32,8 +17,6 @@ function prefersReducedMotion() {
     return false;
   }
 }
-
-/** 播放器开着、窗口拖动中、或已因掉帧被降级时，一律不参与动效。 */
 function motionBlocked() {
   try {
     const body = document.body;
@@ -68,12 +51,6 @@ function reset() {
   frame = 0;
 }
 
-/* 第六十四轮：pointermove 里不再读布局（与 card-tilt.js 同一处修正）。
- *
- * 原来每个 pointermove 都 getBoundingClientRect() + 同步写 5 个 CSS 变量。
- * 实测 hover 时 pointermove 派发间隔被拉到 ~500ms，并伴随 503ms 的纯样式/布局长帧。
- * 现在矩形按卡片缓存（滚动 / 尺寸变化 / 重新进入卡片时作废），写入合并到一帧一次，
- * 且值没变就不写 —— 交互链路里彻底没有「写 → 读 → 写」的横跳。 */
 const rectCache = new WeakMap();
 let cacheEpoch = 0;
 
