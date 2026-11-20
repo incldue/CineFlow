@@ -1,27 +1,3 @@
-/**
- * CineFlow · 舞台上沿对齐（第六十九轮 · 新增文件，零侵入基线）
- *
- * 现象：片库页 / 播放历史页与顶栏之间有一条细缝。
- *
- * 根因在基线 src/page-transition.js 的 syncLayerTop()：
- *     layer.style.top = Math.round(titlebar.offsetHeight) + 2 + 'px'
- * 两个问题叠在一起：
- *   1. offsetHeight 是取整过的整数（实测顶栏 71.38px 被取成 71）；
- *   2. 那个 +2 是给「舞台留出安全边」的旧余量。
- * 于是舞台实际顶边落在 73px，而顶栏真正的底边在 72.7px —— 中间 1.62px 什么都没有，
- * 露出的是下层页面底色，看起来就是一条缝。DPR 1.75 下这是将近 3 个物理像素。
- *
- * 修法：不去改基线（那是硬约束），而是让舞台的 top 由一条 CSS 变量决定，
- * 变量值每次布局变化后重新测量「顶栏底边」反推出来：
- *
- *     target = 当前 top - (舞台 rect.top - 顶栏 rect.bottom)
- *
- * 这个式子是自洽的不动点：一旦对齐，等号右边就不再变化，不会来回抖。
- * 用 !important 覆盖基线的内联 style.top（内联非 important 永远输给样式表 important）。
- *
- * 同时保留基线原意：只有当测量值合理（0 ~ 140px、舞台可见）时才接管，
- * 否则整条规则不生效，退回基线的 +2 行为。全程 try/catch。
- */
 
 const STYLE_ID = 'cf-stage-seam';
 const ATTR = 'data-cf-seam';
@@ -73,11 +49,6 @@ export function initStageSeam() {
         return false;
       }
 
-      /* 绝对量法：直接由「顶栏底边」减「舞台定位父级的内边盒顶边」算出目标 top。
-         这样做的好处是不依赖舞台自己当前的 top —— 上一版用
-         「当前 top - 实测缝隙」，一旦舞台的 top 带 CSS 过渡，量到的是过渡中途的
-         值，写回去又触发下一帧重算，形成来回摆动（实测 top 在 71.26 / 73.12 之间
-         翻面、缝隙 1.74px 反而变大）。绝对量法没有反馈回路，一次收敛。 */
       const host = stage.offsetParent || stage.parentElement;
       if (!host) {
         diag.skipped += 1;
@@ -136,8 +107,6 @@ export function initStageSeam() {
   };
 
   schedule();
-  /* 首屏布局有三段异步：splash 拆除、字体落位、首屏图片解码。
-     跟进这几个时间点，保证最终值是量出来的而不是猜的。 */
   for (const delay of [120, 420, 1200, 2600]) {
     window.setTimeout(() => {
       schedule();
@@ -159,13 +128,8 @@ export function initStageSeam() {
     /* ignore */
   }
 
-  /* 基线在每次切页/滚动补偿时会重写 style.top，这里跟着它重测：
-     只在切换类翻转时触发，不引入任何逐帧监听。 */
   try {
     const observer = new MutationObserver(schedule);
-    /* 只盯 body 的 class（切页 / 滚动补偿会改它）。
-       绝不能盯 documentElement 的 style —— 我们自己就是往那里写变量的，
-       那会变成「写→观察→再写」的闭环（实测帧率直接掉到 2）。 */
     observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   } catch {
     /* ignore */
