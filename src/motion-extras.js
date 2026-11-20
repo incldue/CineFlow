@@ -1,17 +1,3 @@
-/**
- * CineFlow 动效扩容包（新增文件，零侵入）
- *
- * 只做六件事，全部是「加」不是「改」：
- *   B2  轨道滚动进度细线        —— 写 --cf30-progress，纯 transform: scaleX
- *   B5  卡片入场 stagger 扩容    —— 只补基线没覆盖的那些（基线 PREMIUM_REVEAL_MAX = 14）
- *   C2  英雄区滚动视差          —— 写 --cf30-hero-shift / --cf30-hero-copy-shift，走 translate 属性
- *   D1  点击涟漪                —— 合成层 span，动画结束即摘除
- *   D2  评分数字翻滚            —— rAF 合帧内只写 textContent
- *   D3  播放器控制条智能隐现    —— 静止 2.5s 隐藏，一动即回
- *
- * 所有滚动相关计算都走 motion-scheduler 的读写分离 + 视口门控：
- * 屏外不订阅、不读布局、不写样式。这是「动效变多、帧率不掉」的前提。
- */
 
 import {
   requestTick,
@@ -25,7 +11,6 @@ const RAIL_FLAG = 'cf30Rail';
 const ENTER_CLASS = 'cf30-enter';
 const IDLE_CLASS = 'cf30-idle';
 const IDLE_MS = 2500;
-/** 基线 renderer.js 的 PREMIUM_REVEAL_MAX，前 N 张已有入场动画，本模块从 N 之后补起。 */
 const BASELINE_REVEAL_MAX = 14;
 
 /* ============================================================
@@ -102,20 +87,12 @@ function armRailProgress() {
 function applyCardEnter(card) {
   if (!(card instanceof HTMLElement)) return;
   if (prefersReducedMotion()) return;
-  // 一张卡一辈子只播一次。没有这个闸门，任何一次 childList 变更都会让
-  // 视口内所有已武装的卡重播入场 —— 那就是"片库一直在闪"的直接来源。
   if (card.dataset.cf30Played === '1') return;
-  // 基线已经在跑入场动画的，本模块不介入，避免两条 animation 抢同一个 transform
   if (card.classList.contains('is-premium-revealing')) return;
-
   const parent = card.parentElement;
   const isRail = Boolean(parent && parent.classList.contains('movie-rail'));
   let index = 0;
   if (parent) index = Array.prototype.indexOf.call(parent.children, card);
-
-  // 轨道里前 BASELINE_REVEAL_MAX 张由基线 renderer.js 播入场；这里让位，
-  // 但只在「刚渲染出来的那一下」让位 —— 之后（滚动进来 / 兜底补播）照常播，
-  // 否则那几张永远等不到动效。
   if (isRail && index < BASELINE_REVEAL_MAX) {
     const armedAt = Number(card.dataset.cf30ArmedAt || 0);
     if (armedAt && Date.now() - armedAt < 1600) return;
@@ -153,10 +130,6 @@ function armCardEntrance() {
     }
     // threshold 用 0 而不是 0.02：零面积或刚露头的卡片也能触发，且不会漏掉
   }, { rootMargin: '0px 0px -32px 0px', threshold: 0 });
-
-  // IntersectionObserver 在软件渲染 / 后台窗口 / 无合成帧的环境里可能长时间不投递。
-  // 卡片入场是「进入即播」的观感承诺，不能等 —— 兜底：观察后 260ms 内还没触发，
-  // 就直接给视口内的卡片播，屏外的仍交给 IO。
   const flushVisible = () => {
     const vh = window.innerHeight || 0;
     const vw = window.innerWidth || 0;
@@ -204,9 +177,6 @@ function armCardEntrance() {
   });
 }
 
-/* ============================================================
- * C2 · 英雄区滚动视差
- * ============================================================ */
 function findScroller(el) {
   let node = el?.parentElement || null;
   while (node && node !== document.body) {
@@ -233,9 +203,7 @@ function armHeroParallax() {
       return Number.isFinite(top) ? Math.max(0, top) : 0;
     },
     write(top) {
-      // 背景跟着滚动"下移"一点 → 看起来比内容慢，产生纵深
       const backdropShift = Math.min(top * 0.16, 120);
-      // 文案轻轻上浮，和背景反向，层次才立得住
       const copyShift = -Math.min(top * 0.06, 36);
       hero.style.setProperty('--cf30-hero-shift', backdropShift.toFixed(1) + 'px');
       hero.style.setProperty('--cf30-hero-copy-shift', copyShift.toFixed(1) + 'px');
@@ -260,10 +228,6 @@ function armHeroParallax() {
   requestTick();
 }
 
-/* ============================================================
- * D1 · 点击涟漪
- * ============================================================ */
-// 只挂已知 position: relative 且 overflow: hidden 的宿主，涟漪才不会被裁或溢出
 const RIPPLE_HOSTS = '.poster-frame';
 
 function armRipple() {
@@ -299,9 +263,6 @@ function armRipple() {
   }, { passive: true });
 }
 
-/* ============================================================
- * D2 · 评分数字翻滚
- * ============================================================ */
 function rollScore(pill) {
   if (!(pill instanceof HTMLElement) || pill.dataset.cf30Roll === '1') return;
   if (prefersReducedMotion()) return;
@@ -365,9 +326,6 @@ function armScoreRoll() {
   }
 }
 
-/* ============================================================
- * D3 · 播放器控制条智能隐现
- * ============================================================ */
 function armPlayerIdle() {
   let timer = 0;
 
