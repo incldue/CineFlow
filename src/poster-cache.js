@@ -1,31 +1,4 @@
-/**
- * CineFlow 海报缓存与首帧直出（新增文件，零侵入）
- *
- * ⚠️ 第五十二轮重写。上一版把 data: URL 转成 Blob URL 提速，但 index.html 的 CSP
- *    是 `img-src 'self' https://image.tmdb.org http://127.0.0.1:* data:` —— **不含 blob:**。
- *    结果每张海报都在 `blob:` 上触发 error，douban-fallback 的 error 监听再补一遍
- *    data: URL，再被转成 blob: 再报错 —— 实测 1.8 秒一轮的死循环。这就是
- *    「首页以及分类片库的海报显示有很大延迟」的真因。
- *
- *    本版彻底不用 blob:，也不碰 CSP 之外的任何协议。
- *
- * 真正带来「丝滑」的是另外两件事，都不需要换协议：
- *
- *   1) 首帧直出
- *      premium-ui 把 .poster-frame img 的基础态写成 opacity: 0，靠 .is-loaded 才显形；
- *      豆瓣兜底路径再加一条 cf8Fade .32s 的淡入。于是每次轨道重建、切页回来、
- *      滚动触发重挂，海报都要从 0 淡入 320ms —— 用户感觉到的就是「慢半拍」。
- *      这里记住「这个 data: URL 已经成功显示过」，再次挂载时在 MutationObserver
- *      回调里同步补 is-loaded（MO 回调在绘制前执行），首帧就是最终态，零淡入。
- *      首次出现仍然走原有的淡入，观感一点没改。
- *
- *   2) 同 URL 不重设
- *      img.src 写成与当前完全相同的数据时，Chromium 仍会重新走一遍解码路径。
- *      重挂载的卡片经常带着同一个 data: URL，跳过这次赋值能省掉一次全量解码。
- *
- * 缓存以 data: URL 字符串本身为键（不复制字节），上限按字符数折算，只记录
- * 「是否已成功解码过」，不持有位图 —— 位图由 Chromium 自己的图片缓存管理。
- */
+
 
 const CACHE_ENTRIES = 400;
 const CACHE_CHARS = 48 * 1024 * 1024;
@@ -41,8 +14,6 @@ export function initPosterCache() {
   const diag = { readyHits: 0, skippedSrc: 0, remembered: 0, entries: 0, chars: 0 };
   window.__cf34 = window.__cf34 || {};
   window.__cf34.poster = diag;
-
-  /** dataUrl -> true。Map 的插入顺序即 LRU 顺序。 */
   const good = new Map();
   let totalChars = 0;
 
@@ -72,12 +43,6 @@ export function initPosterCache() {
     return true;
   }
 
-  /**
-   * 让这张海报立刻处于最终可见态。
-   *
-   * 只补 is-loaded，不补 cf8-poster-loaded —— 后者会带起 cf8Fade 动画，
-   * 反而又淡入一次。is-loaded 在 premium-ui 里就是 opacity: 1。
-   */
   function settle(img) {
     try {
       if (!img.classList.contains('is-loaded')) img.classList.add('is-loaded');
@@ -162,9 +127,6 @@ export function initPosterCache() {
   }
 
   document.querySelectorAll(POSTER_SELECTOR).forEach(upgrade);
-
-  /* 同 URL 不重设：拦在 HTMLImageElement.prototype.src 的 setter 上。
-   * 只跳过「值完全没变」的情况，语义等价，省一次全量解码。 */
   try {
     const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
     if (descriptor && descriptor.set && !window.__cf34SrcGuard) {
