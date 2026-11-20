@@ -28,6 +28,12 @@ import { initRailGlide } from './rail-glide.js';
 import { initCardTilt } from './card-tilt.js';
 import { initPlayerActionCleanup } from './player-actions-cleanup.js';
 import { initInteractionExtras, showOneshotTip } from './interaction-extras.js';
+import { initSessionHygiene } from './session-hygiene.js';
+import { initStageSeam } from './stage-seam.js';
+import { initMovyQualityMenu } from './movy-quality-menu.js';
+import { initMovySubtitle } from './movy-subtitle-layer.js';
+import { initPlayerSkip } from './player-skip.js';
+import { initHeroBillboard } from './hero-billboard.js';
 
 const ISLAND_CLASSES = ['island-mode', 'island-expanded-mode', 'island-docked-mode'];
 const PRELOAD_DELAY_MS = 2200;
@@ -81,9 +87,39 @@ function mountPages(deps) {
   initPosterFocus();
   initMotionExtras();
   initMotionPerf();
+  // 第六十八轮：长时运行保活（自适应降级 / 休眠页图片回收 / 播放器资源归还 / 空闲维护）。
+  initSessionHygiene();
+  // 第六十九轮：片库 / 历史页与顶栏上沿严格对齐（覆盖基线的 +2px 余量）。
+  initStageSeam();
+  // 第七十轮：内置 Movy 源（详情页 Quality 两层弹层：服务器测活 + 画质）。
+  initMovyQualityMenu({ api, state });
+  initMovySubtitle({ api, state });
+  // 第七十轮：播放器 ±10 秒快进快退（键盘 + 左右双击，连按合并）。
+  initPlayerSkip();
+  // 第七十轮：首页沉浸式大海报 + 片名字标（无字标则原样保留文字标题）。
+  initHeroBillboard({ api });
 
   const library = createLibraryPage({ api, state, escapeHtml });
   const history = createHistoryPage({ state, escapeHtml, resume: createHistoryResume({ state }) });
+
+  /* 第六十六轮：切页时 page-transition 会连着调 prepare() 和 activate()，
+     原来这两个都直接打给 library.activate() / history.activate()，也就是同一次切页
+     把整页数据取一遍、渲染两遍（片库页 216 个节点）。这里合成一次在飞的调用：
+     第二次进来时复用同一个 promise，落地后清空，下一次切页照常刷新。
+     这是纯去重，不改任何一方的内部逻辑。 */
+  const inflight = new WeakMap();
+  function once(target, run) {
+    const pending = inflight.get(target);
+    if (pending) return pending;
+    const promise = Promise.resolve()
+      .then(() => run())
+      .catch(() => {})
+      .finally(() => { inflight.delete(target); });
+    inflight.set(target, promise);
+    return promise;
+  }
+  const libraryOnce = () => once(library, () => library.activate());
+  const historyOnce = () => once(history, () => history.activate());
 
   const stage = createPageTransition({
     root,
@@ -92,29 +128,42 @@ function mountPages(deps) {
       {
         id: 'library',
         el: library.el,
-        activate: () => library.activate(),
+        activate: libraryOnce,
 
-        prepare: () => library.activate(),
+        prepare: libraryOnce,
         settle: () => library.settle(),
       },
       {
         id: 'history',
         el: history.el,
 
-        activate: () => history.activate(),
-        prepare: () => history.activate(),
+        activate: historyOnce,
+        prepare: historyOnce,
         settle: () => history.settle?.(),
       },
     ],
   });
 
   let preloaded = false;
+  /* 第六十六轮：预载从「固定 2200ms」改到「空闲时，且首页已经稳定 4 秒之后」。
+     原来它正好落在用户第一次操作的时间窗里：片库页 activate 要建 216 个节点，
+     和指针/按键抢同一个主线程，体感就是「刚打开就卡一下」。
+     现在挑空闲帧跑，而且一次只预载一页，跑完再等下一段空闲。 */
+  const idle = window.requestIdleCallback
+    ? (cb) => window.requestIdleCallback(cb, { timeout: 4000 })
+    : (cb) => window.setTimeout(cb, 400);
   window.setTimeout(() => {
     if (preloaded || isIsland() || stage.getCurrent() !== 0) return;
     preloaded = true;
-    stage.preload(1);
-    stage.preload(2);
-  }, PRELOAD_DELAY_MS);
+    idle(() => {
+      if (isIsland() || stage.getCurrent() !== 0) return;
+      stage.preload(1);
+      idle(() => {
+        if (isIsland() || stage.getCurrent() !== 0) return;
+        stage.preload(2);
+      });
+    });
+  }, Math.max(PRELOAD_DELAY_MS, 4000));
 
   new MutationObserver(() => stage.setEnabled(!isIsland())).observe(document.body, {
     attributes: true,
@@ -124,7 +173,7 @@ function mountPages(deps) {
   const settingsModal = document.querySelector('#settingsModal');
   if (settingsModal) {
     new MutationObserver(() => {
-      if (settingsModal.classList.contains('is-hidden') && stage.getCurrent() === 1) library.activate();
+      if (settingsModal.classList.contains('is-hidden') && stage.getCurrent() === 1) libraryOnce();
     }).observe(settingsModal, { attributes: true, attributeFilter: ['class'] });
   }
 

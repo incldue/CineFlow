@@ -37,6 +37,35 @@ let frame = 0;
 let snapshot = null;
 let bound = false;
 
+/* 第六十四轮：pointermove 里不再读布局。
+ *
+ * 现场实测（开代理、软件光栅、hover 一张卡）：pointermove 的派发间隔被拉到 ~500ms，
+ * 页面 events 里同时出现一次 503ms 的**纯 styleAndLayout**长帧（scripts 为空）。
+ *
+ * 原因就是这里：每个 pointermove 先 getBoundingClientRect()（强制同步布局，
+ * 页面 843 个节点、73 个 content-visibility 元素），再写 4 个 CSS 变量；
+ * poster-focus.js 在同一个事件里又读一次 rect、写 5 个变量。
+ * 于是「写 → 读 → 写 → 读」每帧来回横跳，输入永远追不上指针。
+ *
+ * 处理（Figma / Linear 这类商用交互软件的通行做法）：矩形只在
+ * pointerover / pointerenter 时读一次并缓存，滚动与窗口尺寸变化时作废；
+ * 之后的 pointermove 只用缓存 + 事件坐标，一次布局都不碰。 */
+
+const rectCache = new WeakMap();
+let cacheEpoch = 0;
+
+function rectOf(card) {
+  const hit = rectCache.get(card);
+  if (hit && hit.epoch === cacheEpoch) return hit.rect;
+  const rect = card.getBoundingClientRect();
+  rectCache.set(card, { epoch: cacheEpoch, rect });
+  return rect;
+}
+
+function invalidateRects() {
+  cacheEpoch += 1;
+}
+
 function reduced() {
   try {
     return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -93,10 +122,15 @@ function apply() {
   try {
     if (card.isConnected === false) { reset(); return; }
     card.classList.add(LIT_CLASS);
-    card.style.setProperty('--cf37-rx', shot.rx.toFixed(2) + 'deg');
-    card.style.setProperty('--cf37-ry', shot.ry.toFixed(2) + 'deg');
-    card.style.setProperty('--cf37-cx', shot.cx.toFixed(2) + 'px');
-    card.style.setProperty('--cf37-cy', shot.cy.toFixed(2) + 'px');
+    // 亚像素级抖动不重写：写一次 CSS 变量就是一次样式失效，值没变就别动。
+    const rx = shot.rx.toFixed(2);
+    const ry = shot.ry.toFixed(2);
+    const cx = shot.cx.toFixed(2);
+    const cy = shot.cy.toFixed(2);
+    if (rx !== shot._rx) { shot._rx = rx; card.style.setProperty('--cf37-rx', rx + 'deg'); }
+    if (ry !== shot._ry) { shot._ry = ry; card.style.setProperty('--cf37-ry', ry + 'deg'); }
+    if (cx !== shot._cx) { shot._cx = cx; card.style.setProperty('--cf37-cx', cx + 'px'); }
+    if (cy !== shot._cy) { shot._cy = cy; card.style.setProperty('--cf37-cy', cy + 'px'); }
   } catch (error) {
     /* 装饰层失败不影响点击 */
   }
@@ -121,7 +155,7 @@ function onPointerMove(event) {
 
     if (current && current !== card) clear(current);
 
-    const rect = card.getBoundingClientRect();
+    const rect = rectOf(card);
     if (!rect.width || !rect.height) return;
 
     // -1 ~ 1，0 为卡片正中
@@ -168,6 +202,12 @@ function bind() {
   if (bound) return true;
   if (document.documentElement.dataset[READY_FLAG] === '1') return true;
   try {
+    document.addEventListener('pointerover', (event) => {
+      const t = event.target;
+      if (t instanceof Element && t.closest(RAIL_CARD)) invalidateRects();
+    }, { passive: true, capture: true });
+    document.addEventListener('scroll', invalidateRects, { passive: true, capture: true });
+    window.addEventListener('resize', invalidateRects, { passive: true });
     document.addEventListener('pointermove', onPointerMove, { passive: true });
     document.addEventListener('pointerout', onPointerOut, { passive: true });
     document.addEventListener('pointercancel', reset, { passive: true });

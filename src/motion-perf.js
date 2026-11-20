@@ -66,13 +66,35 @@ function syncTitlebarHeight() {
     return;
   }
 
-  const apply = () => {
+  /* 第六十三轮：写前去重。
+   *
+   * 现场实测（代理模式、软件光栅）：首页稳定后每 4 秒左右会出现一次 ~470ms 的白帧，
+   * 启动阶段还有一次 6.6 秒的整体冻结。CPU 采样里 getBoundingClientRect 独占 2953ms，
+   * 调用栈指向的正是这里 —— apply() 被 ResizeObserver / MutationObserver /
+   * transitionend / animationend 反复触发（34 秒内 25 次），每次都无条件
+   * document.documentElement.style.setProperty(...)。
+   *
+   * 写 <html> 的 CSS 变量 = 整棵树的样式重算 + 全页重排。入场动画期间 animationend
+   * 连发几十次，于是"读 rect → 写 html 变量 → 强制全页重排"循环几十遍。
+   *
+   * 处理：值没变就一个字节都不写；一帧内的多次触发合并成一次。
+   * 观感完全不变（值本来就没变），只是不再自找重排。 */
+  let lastRaw = '';
+  let lastH = '';
+  let pending = 0;
+
+  const writeVars = () => {
+    pending = 0;
     try {
       const barRect = bar.getBoundingClientRect();
       if (!Number.isFinite(barRect.bottom) || barRect.bottom <= 0) return;
 
       // 顶栏自身高度（不含误差）也要给一份，供别的规则用
-      document.documentElement.style.setProperty('--cf-titlebar-raw', barRect.height.toFixed(2) + 'px');
+      const raw = barRect.height.toFixed(2) + 'px';
+      if (raw !== lastRaw) {
+        lastRaw = raw;
+        document.documentElement.style.setProperty('--cf-titlebar-raw', raw);
+      }
 
       // 搜索页的 top 必须写成「顶栏下沿相对它自己包含块顶部的偏移」
       const hub = document.getElementById('cf25SearchHub');
@@ -83,9 +105,23 @@ function syncTitlebarHeight() {
       // 这时 top 必须是负数才能贴住，否则就留一条 1~2px 的缝。
       const offset = barRect.bottom - blockRect.top;
       if (!Number.isFinite(offset) || offset < -12 || offset > 400) return;
-      document.documentElement.style.setProperty('--cf-titlebar-h', offset.toFixed(2) + 'px');
+      const h = offset.toFixed(2) + 'px';
+      if (h !== lastH) {
+        lastH = h;
+        document.documentElement.style.setProperty('--cf-titlebar-h', h);
+      }
     } catch (error) {
       /* 忽略 */
+    }
+  };
+
+  // 一帧内多次触发只排一次；没有 rAF 就退回微任务批处理
+  const apply = () => {
+    if (pending) return;
+    try {
+      pending = window.requestAnimationFrame(writeVars) || 1;
+    } catch (error) {
+      pending = window.setTimeout(writeVars, 16);
     }
   };
 

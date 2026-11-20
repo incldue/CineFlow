@@ -1,0 +1,29 @@
+/* CineFlow · 播放器 ±10s 提示（新增文件，零侵入；只新增规则） */
+
+.cf-skip-flash {
+  position: fixed;
+  z-index: 9600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(10, 12, 16, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 0.16s ease, transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
+.cf-skip-flash.is-on {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-skip-flash { transition: none; transform: none; }
+}

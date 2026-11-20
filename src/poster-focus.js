@@ -68,22 +68,66 @@ function reset() {
   frame = 0;
 }
 
+/* 第六十四轮：pointermove 里不再读布局（与 card-tilt.js 同一处修正）。
+ *
+ * 原来每个 pointermove 都 getBoundingClientRect() + 同步写 5 个 CSS 变量。
+ * 实测 hover 时 pointermove 派发间隔被拉到 ~500ms，并伴随 503ms 的纯样式/布局长帧。
+ * 现在矩形按卡片缓存（滚动 / 尺寸变化 / 重新进入卡片时作废），写入合并到一帧一次，
+ * 且值没变就不写 —— 交互链路里彻底没有「写 → 读 → 写」的横跳。 */
+const rectCache = new WeakMap();
+let cacheEpoch = 0;
+
+function rectOf(card) {
+  const hit = rectCache.get(card);
+  if (hit && hit.epoch === cacheEpoch) return hit.rect;
+  const rect = card.getBoundingClientRect();
+  rectCache.set(card, { epoch: cacheEpoch, rect });
+  return rect;
+}
+
+function invalidateRects() {
+  cacheEpoch += 1;
+}
+
+let tick = 0;
+
 function apply() {
   frame = 0;
+  if (tick) { try { window.clearTimeout(tick); } catch { /* 忽略 */ } tick = 0; }
   const card = currentCard;
   const shot = snapshot;
   if (!card || !shot) return;
   try {
     if (card.isConnected === false) { reset(); return; }
     card.classList.add(LIT_CLASS);
-    card.style.setProperty('--cf-fx', shot.fx.toFixed(4));
-    card.style.setProperty('--cf-fy', shot.fy.toFixed(4));
-    card.style.setProperty('--cf-fpx', shot.fpx.toFixed(2) + 'px');
-    card.style.setProperty('--cf-fpy', shot.fpy.toFixed(2) + 'px');
-    card.style.setProperty('--cf-fz', shot.fz.toFixed(3));
+    const fx = shot.fx.toFixed(4);
+    const fy = shot.fy.toFixed(4);
+    const fpx = shot.fpx.toFixed(2) + 'px';
+    const fpy = shot.fpy.toFixed(2) + 'px';
+    const fz = shot.fz.toFixed(3);
+    if (fx !== shot._fx) { shot._fx = fx; card.style.setProperty('--cf-fx', fx); }
+    if (fy !== shot._fy) { shot._fy = fy; card.style.setProperty('--cf-fy', fy); }
+    if (fpx !== shot._fpx) { shot._fpx = fpx; card.style.setProperty('--cf-fpx', fpx); }
+    if (fpy !== shot._fpy) { shot._fpy = fpy; card.style.setProperty('--cf-fpy', fpy); }
+    if (fz !== shot._fz) { shot._fz = fz; card.style.setProperty('--cf-fz', fz); }
   } catch {
     /* 装饰层失败不影响任何交互 */
   }
+}
+
+/* 合并到一帧一次；窗口失焦 / 后台时 rAF 会被挂起，用 60ms 定时器兜底抢跑。 */
+function scheduleApply() {
+  if (frame || tick) return;
+  try {
+    frame = window.requestAnimationFrame(apply);
+  } catch {
+    frame = 0;
+  }
+  tick = window.setTimeout(() => {
+    tick = 0;
+    if (frame) { try { window.cancelAnimationFrame(frame); } catch { /* 忽略 */ } frame = 0; }
+    apply();
+  }, 60);
 }
 
 function onPointerMove(event) {
@@ -97,7 +141,7 @@ function onPointerMove(event) {
 
     if (currentCard && currentCard !== card) clearCard(currentCard);
 
-    const rect = card.getBoundingClientRect();
+    const rect = rectOf(card);
     if (!rect.width || !rect.height) return;
 
     // 归一化到 -1 ~ 1（0 为中心）
@@ -117,9 +161,7 @@ function onPointerMove(event) {
       fz
     };
 
-    // 直接同步写入：pointermove 本身已被浏览器按帧节流，这里再套一层 rAF
-    // 反而会在窗口失焦 / 后台时被挂起，导致视差变量迟迟不落地。
-    apply();
+    scheduleApply();
   } catch {
     /* 极致降级：忽略本次移动 */
   }
@@ -154,6 +196,13 @@ function bind() {
   if (bound) return true;
   if (document.documentElement.dataset[READY_FLAG] === '1') return true;
   try {
+    // 矩形缓存失效时机：滚动、尺寸变化、重新进入一张卡（卡片可能刚被插入/替换）
+    document.addEventListener('pointerover', (event) => {
+      const t = event.target;
+      if (t instanceof Element && t.closest(CARD_SELECTOR)) invalidateRects();
+    }, { passive: true, capture: true });
+    document.addEventListener('scroll', invalidateRects, { passive: true, capture: true });
+    window.addEventListener('resize', invalidateRects, { passive: true });
     document.addEventListener('pointermove', onPointerMove, { passive: true });
     document.addEventListener('pointerout', onPointerOut, { passive: true });
     document.addEventListener('pointercancel', reset, { passive: true });
