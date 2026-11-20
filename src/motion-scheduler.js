@@ -1,17 +1,3 @@
-/**
- * CineFlow 统一动效调度器（新增文件，零侵入）
- *
- * 解决的问题：JS 驱动的动效散落各处，各自 requestAnimationFrame、各自读布局、各自写样式。
- * 只要「读 → 写 → 读 → 写」交替发生，浏览器就必须在中间同步重排一次，这叫 layout thrash，
- * 是掉帧的头号原因。本模块把一帧拆成**严格的读相位与写相位**：所有 getBoundingClientRect /
- * scrollLeft / scrollWidth 先批量读完，再统一写样式，中间不再穿插读取。
- *
- * 另外提供两件事：
- *   · IntersectionObserver 门控 —— 元素出视口就停订，屏外零计算零写入；
- *   · will-change 生命周期 —— 进视口才提，出视口撤销（长期挂着会吃显存，反而拖慢合成）。
- *
- * 约束：任何异常都在模块内部吞掉，动效失败绝不影响点击、滚动与播放。
- */
 
 const subscribers = new Set();
 let frameHandle = 0;
@@ -20,8 +6,6 @@ let started = false;
 function flush(now) {
   frameHandle = 0;
   if (!subscribers.size) return;
-
-  // 快照一次，避免回调里增删订阅导致遍历错乱
   const list = [];
   for (const sub of subscribers) {
     if (sub.active !== false) list.push(sub);
