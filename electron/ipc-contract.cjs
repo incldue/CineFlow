@@ -1,14 +1,7 @@
 'use strict';
-/**
- * IPC 契约层（新增文件，零触碰架构基建之四）。
- * 为已知高频通道定义 payload 校验器，并在**全部包装器之后**以 log-only 方式安装：
- * 只记录违规（便于发现契约漂移），绝不修改/拦截返回值——保证零回归。
- * cf:contract.list 提供契约自省视图。
- */
 
 const telemetry = require('./telemetry.cjs');
 
-/** 校验器：返回 null 表示通过，否则返回违规描述字符串 */
 const validators = {
   'app:importResourceSources': (payload) => (typeof payload === 'string' || (payload && typeof payload === 'object') ? null : 'payload 应为字符串或对象'),
   'app:saveProxy': (payload) => (payload === null || typeof payload === 'string' ? null : 'proxy 应为字符串或 null'),
