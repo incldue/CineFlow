@@ -1,17 +1,5 @@
 'use strict';
-/**
- * CineFlow 源轮询聚合引擎（新增文件，零触碰外挂）。
- * 由 bootstrap.cjs 在 main.cjs 加载完成后安装；基线任何文件不做改动，异常自动回落基线 handler。
- *
- * 相对基线 gatherAllSources 的提速点（全部实测定位自 main.cjs）：
- *   - 全源并发（并发池 8；基线先串行等第一批 4 源再并发其余，最慢源拖住整体）
- *   - 每源标题 2 路并行（基线最多 4 个标题串行 × 6.5s 超时 = 最坏 26s/源）
- *   - 每源 5s 总预算，超时砍尾
- *   - in-flight 去重（hover 预热与实开详情共享同一次聚合）
- *   - 正结果缓存 4min / 负结果缓存 90s（基线 fast cache 60s 且负结果不缓存）
- *   - 按 cursor/limit 渐进分批返回：基线渲染层自带的渐进轮询循环因此复活（轮询完即回显）
- * 过滤复用基线同一份 resource-type-filter.cjs（毫秒级同步、语义零偏差）。
- */
+
 
 const { filterResources } = require('./resource-type-filter.cjs');
 const cacheLayer = require('./cache-layer.cjs');
@@ -23,7 +11,7 @@ const PER_REQUEST_TIMEOUT_MS = 6500;
 const SOURCE_POOL = 8;
 const TITLE_CONCURRENCY = 2;
 const FIRST_DELIVERY_WAIT_MS = 1600;
-const RELEASE_DEADLINE_MS = 2500;   // 高优先源迟迟未出结果时，改为按完成顺序放行
+const RELEASE_DEADLINE_MS = 2500;   
 const FULL_WAIT_MS = 20000;
 
 /* ---- 缓存参数 ---- */
@@ -54,7 +42,6 @@ const state = {
   aggInflight: new Map()
 };
 
-/* 统一缓存层（cache-layer）：语义与旧 ad-hoc Map 逐字段一致 */
 const engineResponseCache = cacheLayer.createCache({ namespace: 'engine.response', ttlMs: RESPONSE_TTL_MS, max: RESPONSE_MAX });
 const engineAggCache = cacheLayer.createCache({ namespace: 'engine.agg', max: AGG_CACHE_MAX });
 const engineTestCache = cacheLayer.createCache({ namespace: 'engine.test', ttlMs: TEST_TTL_MS, max: TEST_CACHE_MAX });
@@ -63,8 +50,6 @@ const enginePlaySourceCache = cacheLayer.createCache({ namespace: 'engine.playSo
 const engineLog = (...args) => {
   try { console.log('[CineFlow:Engine]', ...args); } catch { /* ignore */ }
 };
-
-/* ==== 基线同值复刻（main.cjs L1381-2063 逐字对齐，勿改语义） ==== */
 
 function inferMediaKind(value = '', contentType = '') {
   const text = String(value || '').toLowerCase();
