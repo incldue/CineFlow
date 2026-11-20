@@ -1,46 +1,7 @@
-/**
- * CineFlow 滑动流畅度补丁（新增文件，零侵入）
- *
- * 三件事，全部是"减少每帧工作量"，不动任何既有动效的观感：
- *
- *   1) 顶栏高度同步
- *      搜索页 .cf25-hub 的 top 是硬编码 76px，而顶栏实际高 71.38px + #app 边框 1.32px
- *      = 72.7px，于是留下 4.6px 缝隙。这里把顶栏真实高度写进 --cf-titlebar-h，
- *      让搜索页贴着顶栏下沿。
- *
- *   2) 海报 blur-up 收尾
- *      上一轮 blur-up 的终点是 filter: blur(0)。blur(0) 依然是 filter —— 浏览器仍要走
- *      滤镜通道，图片无法进入普通光栅缓存，横向滑动时每帧都要重新合成。
- *      这里在淡入结束后补 .cf30-sharp，把 filter 彻底置为 none。
- *
- *   3) 滚动期减负
- *      轨道边缘的 mask-image 会把整个滚动容器并成一层带遮罩的图层，滚动时整条轨道
- *      每帧重新光栅化；卡片上的 transform/box-shadow/border 过渡与柔光动画也在抢主线程。
- *      滚动开始 → 挂 .cf30-scrolling（撤 mask、关过渡），静息 120ms 后摘掉还原。
- *      边缘渐隐在静止时出现、滑动时让位，是流媒体端一贯的做法。
- *
- * 所有逻辑都在模块内部 try/catch，任何一步失败都不影响滚动与点击。
- */
 
 const RAIL_SCROLL_CLASS = 'cf30-scrolling';
 const SHARP_CLASS = 'cf30-sharp';
-/* 第五十一轮：轨道滚动的静息窗口从 120ms 拉到 320ms。
- * 滚轮是一格一格来的，格与格之间常常超过 120ms —— 类名被摘了又加，
- * 每一次都是整条轨道的样式重算 + 重新光栅化。320ms 足够跨过两格间隙，
- * 停下后照样恢复，静止观感一点没变。 */
 const RAIL_IDLE_MS = 320;
-
-/* ------------------------------------------------------------------
- * 1 · 顶栏高度 → --cf-titlebar-h
- * ------------------------------------------------------------------ */
-/**
- * 找一个 position: fixed 元素的真实包含块。
- *
- * CSS 规定：祖先只要有 transform / filter / perspective 或相应的 will-change，
- * 就会成为 fixed 后代的包含块。本项目的 main.app-shell 在过渡期带 transform + filter，
- * 于是搜索页 .cf25-hub 的 top 会相对 app-shell 而不是视口 —— 这就是那条缝隙的根因。
- * 这里按同一套规则回溯，拿到当前真正生效的包含块。
- */
 function findContainingBlock(el) {
   let node = el?.parentElement || null;
   while (node && node !== document.documentElement) {
@@ -65,20 +26,6 @@ function syncTitlebarHeight() {
     window.setTimeout(syncTitlebarHeight, 700);
     return;
   }
-
-  /* 第六十三轮：写前去重。
-   *
-   * 现场实测（代理模式、软件光栅）：首页稳定后每 4 秒左右会出现一次 ~470ms 的白帧，
-   * 启动阶段还有一次 6.6 秒的整体冻结。CPU 采样里 getBoundingClientRect 独占 2953ms，
-   * 调用栈指向的正是这里 —— apply() 被 ResizeObserver / MutationObserver /
-   * transitionend / animationend 反复触发（34 秒内 25 次），每次都无条件
-   * document.documentElement.style.setProperty(...)。
-   *
-   * 写 <html> 的 CSS 变量 = 整棵树的样式重算 + 全页重排。入场动画期间 animationend
-   * 连发几十次，于是"读 rect → 写 html 变量 → 强制全页重排"循环几十遍。
-   *
-   * 处理：值没变就一个字节都不写；一帧内的多次触发合并成一次。
-   * 观感完全不变（值本来就没变），只是不再自找重排。 */
   let lastRaw = '';
   let lastH = '';
   let pending = 0;
@@ -88,21 +35,15 @@ function syncTitlebarHeight() {
     try {
       const barRect = bar.getBoundingClientRect();
       if (!Number.isFinite(barRect.bottom) || barRect.bottom <= 0) return;
-
-      // 顶栏自身高度（不含误差）也要给一份，供别的规则用
       const raw = barRect.height.toFixed(2) + 'px';
       if (raw !== lastRaw) {
         lastRaw = raw;
         document.documentElement.style.setProperty('--cf-titlebar-raw', raw);
       }
-
-      // 搜索页的 top 必须写成「顶栏下沿相对它自己包含块顶部的偏移」
       const hub = document.getElementById('cf25SearchHub');
       const anchor = hub || document.getElementById('app');
       const block = findContainingBlock(anchor);
       const blockRect = block.getBoundingClientRect();
-      // 允许负值：包含块（过渡期的 app-shell）顶部偶尔比顶栏下沿更低，
-      // 这时 top 必须是负数才能贴住，否则就留一条 1~2px 的缝。
       const offset = barRect.bottom - blockRect.top;
       if (!Number.isFinite(offset) || offset < -12 || offset > 400) return;
       const h = offset.toFixed(2) + 'px';
@@ -297,14 +238,6 @@ function armPageScrolling() {
     return;
   }
 
-  /**
-   * 第五十一轮：不再翻自己的 body 类名。
-   *
-   * 原来这里和 response-boost.js 各翻一个 body 类（cf3-scrolling / cf33-scroll），
-   * 而两者监听的是同一批 scroll / wheel 事件 —— 滚动起止各触发两次整棵子树的
-   * 样式重算。cf3-scrolling 的样式已经并进 cf33-scroll（见 styles.css 的 cf35 块），
-   * 这里只负责把滚动活动"喂"给同一个探测器。
-   */
   const engage = () => {
     try {
       if (typeof window.__cf33Engage === 'function') window.__cf33Engage();
