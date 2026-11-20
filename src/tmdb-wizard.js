@@ -1,18 +1,4 @@
-/**
- * v3.4.1 纯增量：TMDB 应用内一键凭证向导（渲染层）。
- * v3.4.2 把卡片压成单行；第二十二轮把过程搬进设置页同款鸿蒙气泡——
- * 点「一键获取」只弹气泡，进度轨/状态文案/取消都在气泡里，卡片那一行不再挤出第二行。
- *
- * 设置页里基线那段 "TMDB API Key 或 Read Access Token" 标签 + textarea 由 cf6 覆盖层整块隐藏，
- * 原地换成一行卡片：`TMDB 凭证` + 状态徽标 + 一颗按钮。成功后标题转强调色并带光晕与对勾，
- * 然后自动点基线的"保存并刷新"，用户不用再碰任何输入框。
- *
- * 没有 v3 Key 时（TMDB 的 request token 端点要求带 api_key，这一步无法绕过）自动降级为引导：
- * 打开 TMDB 申请页 + 轮询剪贴板，用户复制密钥回到应用即被识别保存，随后接着跑授权流。
- * 全程不代填注册表单、不过 CAPTCHA、不碰邮箱验证与开发者审批，也不接收用户名/邮箱去调 TMDB 接口。
- *
- * 本文件与 styles.css 里 cf6/cf12 两段、main.cjs 末尾的 tmdbAuth 段、preload 的 4 行 API 一起摘掉即可完全回退。
- */
+
 
 const TICK_MS = 700;
 const CLIPBOARD_TICK_MS = 800;
@@ -21,10 +7,6 @@ const TMDB_API_PAGE = 'https://www.themoviedb.org/settings/api';
 const APPLY_STEPS = ['打开 TMDB 申请页', '登录并申请 API Key', '识别并校验密钥', '换取 Read Access Token', '写入本机配置'];
 const AUTH_STEPS = ['申请 request token', '打开 TMDB 授权页', '等待你点批准', '换取 Read Access Token', '写入本机配置'];
 
-// 申请草稿：字段严格照 `src/guide/API_4.png`（TMDB Developer Plan 申请表）来，分区与顺序一致。
-// 应用信息四项给好默认值；联系方式是用户本人的身份资料，一律留空由用户自己敲（应用不收集、不上传，
-// 只存在本机 localStorage 方便下次复用）。边界不变：这里只产出文本 + 打开官方页面，
-// 应用不加载、不注入、不代填第三方页面，条款勾选与 Subscribe 必须由用户本人点。
 const DRAFT_GROUPS = [
   {
     title: '开发者计划',
@@ -36,8 +18,6 @@ const DRAFT_GROUPS = [
     ]
   },
   {
-    // 第三十一轮：这一组整组不给复制按钮（值照旧填着，用户自己选中复制或直接看），
-    // 默认值一个没动 —— 名字/姓氏/电话/地址/城市/省/邮编就是 API_4.png 里那几项。
     title: '联系方式',
     copy: false,
     rows: [
@@ -162,9 +142,6 @@ function mountTmdbWizard({ api, state } = {}) {
   let mode = 'auth';
   let bubbleOpen = false;
   let chaining = false;
-
-  // 锚到卡片那颗按钮下面；气泡静息态带 scale，getBoundingClientRect 会被 transform 带偏，
-  // 所以用 offsetLeft/offsetTop 回校一次，和搜索记录气泡同一套算法。
   function placeBubble() {
     const rootRect = appRoot.getBoundingClientRect();
     const anchor = btnEl.getBoundingClientRect();
