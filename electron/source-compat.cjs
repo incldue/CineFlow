@@ -1,19 +1,5 @@
 'use strict';
-/**
- * CineFlow 播放源兼容层（新增文件，零触碰外挂）。
- * 由 bootstrap.cjs 在 main.cjs 加载完成后安装；基线任何文件不做改动。
- * 能力：
- *   1. TVBox 导入 v2（包装 app:importResourceSources）：
- *      base64 整包解码 / 多仓跟随 / sites 缺 type 补默认 / type 0(XML) 与 1(JSON) 全收 /
- *      raw.sources 变体 / csp_ 爬虫与 lives 直播跳过计数 / sites[].header 登记进主机头注册表
- *   2. fetch 响应兼容层（包装 session.defaultSession.fetch，保守介入、其余直通）：
- *      MacCMS XML→基线 JSON 形状翻译（按响应体嗅探，覆盖 at/xml、api/xml.php、sapi.php、
- *      cjapi…vod/xml、api.php?ac=list 等全部路径方言 + CDATA/实体/属性式变体）/
- *      GBK・GB2312・GB18030 重解码 / 相对播放 URL 按 origin 补全
- *   3. 证书宽容：仅对「用户导入过的源主机」放行自签证书；GitHub/更新域名绝不放行
- *   4. 启动闲时对已登记源主机暖 DNS+TLS
- * 任何环节异常都保持基线行为（导入回落原 handler、fetch 直通）。
- */
+
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -30,13 +16,12 @@ const state = {
   installed: false,
   app: null,
   session: null,
-  fetchThis: null,         // session.fetch 的 this 必须是 defaultSession 实例
+  fetchThis: null,         
   registryPath: '',
-  sourceHosts: new Set(),  // 已导入源主机（嗅探范围 + 证书宽容名单）
-  hostHeaders: new Map(),  // host -> { ua?, referer? }
-  warmUrls: new Set(),     // 完整 origin（含协议），闲时暖连接用
+  sourceHosts: new Set(),  
+  hostHeaders: new Map(),  
+  warmUrls: new Set(),   
   originalFetch: null,
-  // http-only 源站学习表：host → http 直连有效期（时间戳）
   httpPreferredHosts: new Map(),
   httpFallback: { retried: 0, ok: 0 },
   originalImport: null
@@ -47,8 +32,6 @@ const rawFetch = (input, init) => state.originalFetch.call(state.fetchThis, inpu
 const compatLog = (...args) => {
   try { console.log('[CineFlow:Compat]', ...args); } catch { /* ignore */ }
 };
-
-/* ============ 登记文件（userData 下，独立于基线 settings.json） ============ */
 
 function registryFile() {
   if (!state.registryPath && state.app) {
@@ -150,8 +133,6 @@ function decodeSmart(buffer, contentType) {
   return utf8;
 }
 
-/* ============ MacCMS XML → 基线 JSON 形状 ============ */
-
 function isMaccmsXmlText(text) {
   const body = String(text || '').trimStart();
   if (!body.startsWith('<')) return false;
@@ -205,7 +186,6 @@ function xmlVideoToItem(videoBody, videoAttrs, baseUrl) {
     if (!(key in fields) || !fields[key]) fields[key] = decodeEntity(value);
   }
 
-  // 播放分组：dl > dd（flag=线路名，正文=集1$url#集2$url）
   const flags = [];
   const groups = [];
   for (const dlMatch of stripCdata(videoBody).matchAll(/<dl[^>]*>([\s\S]*?)<\/dl>/gi)) {
