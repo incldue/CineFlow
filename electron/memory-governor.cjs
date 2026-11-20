@@ -1,21 +1,5 @@
 'use strict';
 
-/* ---------------------------------------------------------------------------
- * 内存总督（第六十八轮 · 新增文件，零侵入基线）
- *
- * 目标不是"某一次卡顿"，而是"用多久都一样"：macOS 的 jetsam / NSCache 与 iOS 的
- * didReceiveMemoryWarning 都是同一条思路 —— 常态下低开销地量，越界就分级回收，
- * 回收完继续量。这里落成三档：
- *
- *   ok       (< 700MB 渲染进程私有内存)  只记录
- *   warn     (>= 700MB)                 让渲染层立刻回收休眠页图片与播放器资源
- *   critical (>= 1100MB，或 warn 连续 3 次)  warn 的动作 + 清 Chromium 缓存
- *                                       + 清 DNS 缓存 + 把后台窗口降频
- *
- * 只在真的越界时才动 session 缓存：平时清缓存会让海报反复重下，那是另一种卡。
- * 全部 try/catch；CINEFLOW_MEMORY_GOVERNOR=0 可整体关闭。
- * ------------------------------------------------------------------------- */
-
 const SAMPLE_MS = 20000;
 const WARN_BYTES = 700 * 1024 * 1024;
 const CRITICAL_BYTES = 1100 * 1024 * 1024;
@@ -55,7 +39,6 @@ function createMemoryGovernor({ log } = {}) {
         rendererBytes = Math.max(rendererBytes, bytesOf(info));
       }
     } catch {
-      /* ignore */
     }
     if (!rendererBytes && stats2.length) {
       for (const item of stats2) {
