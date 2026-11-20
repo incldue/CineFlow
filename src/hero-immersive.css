@@ -1,14 +1,8 @@
-/* CineFlow · 首页片名字标（新增文件，零侵入；只新增规则，不动基线两栏布局） */
-
-/* 布局交回基线：不再铺满、不再加横向蒙版，海报回到原来的位置与尺寸。
-   这里只管一件事——字标怎么塞进左边文案栏而不越界。 */
 
 #cfHeroLogo.cf-hero-logo {
   display: block;
   width: auto;
   height: auto;
-  /* 自适应裁剪：取文案栏宽度的 100% 为硬上限，高度再压一道，
-     超出的部分靠 object-fit: contain 等比缩进去，绝不撑破左栏、绝不盖到右侧海报。 */
   max-width: min(100%, 460px);
   max-height: clamp(54px, 9vh, 100px);
   object-fit: contain;
@@ -18,8 +12,6 @@
   filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.5));
   animation: cfHeroLogoIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
-
-/* 文字标题与字标交叉淡入：只淡出不占位（整体高度立刻让给字标，避免留一条空带） */
 #dailyTitle {
   transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity;
