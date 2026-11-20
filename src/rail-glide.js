@@ -1,48 +1,17 @@
-/**
- * 栏目指针感应滑动（新增文件，零侵入）
- *
- * 用户诉求（第七版）：
- *   · 首页下方两个栏目「根据你的喜好推荐 / 正在热映与高分片单」不要再出现横向滚动条；
- *   · 鼠标移到栏目左右边缘的海报上时，栏目自己丝滑地往中间滑；
- *   · 松手/移开后自动吸附到最近的一张海报。
- *
- * 做法：
- *   1. 给这两个轨道加 cf37-glide 类 —— CSS 里把 scrollbar 宽度归零（Chromium 的
- *      scrollbar-width: none + ::-webkit-scrollbar { display:none } 双保险），不再占 17px 高；
- *   2. 只在指针真的落在轨道矩形内、且落在左右 EDGE 带里才滑；
- *      速度按「贴边深度」二次曲线上升（深度²），中心是死区 —— 非线性才有"吸过去"的感觉，
- *      线性速度会像被人拖着走，那是生硬；
- *   3. 速度不是瞬间赋值，而是按 ACCEL_MS 爬升/衰减，停下时再用手感缓出吸附到最近一张：
- *      吸附目标 = round(scrollLeft / 卡片节距) × 卡片节距，节距取自前两张卡的 offsetLeft 差，
- *      所以 178px 卡 + 16px gap、或 mini 轨道的 138px 卡都能自动对上，不用写死尺寸；
- *   4. 滑行期间给轨道加 cf37-gliding，把 scroll-snap-type 临时置 none（原生 proximity 吸附会
- *      和我们的写入打架，导致一顿一顿），吸附结束再交还原生吸附；
- *   5. 滚轮 / 拖拽 / 展开网格（is-expanded）时立即让位，绝不抢用户的输入。
- *
- * 已经验证过不会被打破的东西：
- *   · 滚轮横向滚动（interaction-extras）—— wheel 事件里直接放行，还顺手把滑行停掉；
- *   · poster-focus 的卡片内视差 —— 我们只写 rail.scrollLeft，不碰卡片 transform；
- *   · motion-scheduler 的读写分离 —— 本模块自己的 rAF 只写 scrollLeft，不读样式。
- */
 
 const RAIL_SELECTOR = '.content-section .movie-rail';
 const GLIDE_CLASS = 'cf37-glide';
 const GLIDING_CLASS = 'cf37-gliding';
 const SCAN_LIMIT = 8;
-
-/** 边缘感应带：轨道宽度的 16%，夹在 56~170px 之间（1280 宽下约 170px，正好两张卡）。 */
 const EDGE_RATIO = 0.16;
 const EDGE_MIN = 56;
 const EDGE_MAX = 170;
-/** 边缘带内侧再留 6px 松弛，指针刚好压在卡片边框上也认。 */
 const EDGE_SLACK = 6;
-
 const MIN_SPEED = 240;
 const MAX_SPEED = 1750;
 const ACCEL_MS = 130;
 const SNAP_MS = 240;
 const SNAP_MS_REDUCED = 1;
-
 const states = new Set();
 let raf = 0;
 let lastTs = 0;
@@ -66,15 +35,6 @@ function reduced() {
   }
 }
 
-/**
- * 只挡「窗口正在被拖动」这一种。
- *
- * 特意**不**挡 body.is-motion-throttled：那个类是基线 renderer.js 的启动帧守卫
- * （setupPremiumMotionGuard，采样窗口内累计够长的长帧就加上，且永不移除），
- * 针对的是「闲置也在跑」的常驻装饰动画（英雄区视差、premium 光泽）。
- * 本模块只在指针停在边缘时才有写入，指针一走就停，闲置零开销 ——
- * 用那面闸门会把用户要的功能一起关掉（软件渲染 / 老显卡上尤其明显）。
- */
 function blocked() {
   try {
     const body = document.body;
@@ -89,8 +49,6 @@ function blocked() {
 function clamp(value, min, max) {
   return value < min ? min : value > max ? max : value;
 }
-
-/** 卡片节距：前两张卡的 offsetLeft 差。取不到就退化成第一张卡的宽度 + 16。 */
 function pitchOf(rail) {
   try {
     const card = rail.querySelector('.movie-card');
