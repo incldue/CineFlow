@@ -8,8 +8,6 @@ const path = require('node:path');
 
 const DEFAULT_DOH_ENDPOINT = process.env.CINEFLOW_DOH_ENDPOINT || 'https://arkdo.ddd.oaifree.com/query-dns';
 const DOH_TYPES = { 4: 'A', 6: 'AAAA' };
-
-// v3.4.0 直连优化：连接复用（避免每个 HLS 分片重新 TCP+TLS 握手）
 const KEEP_ALIVE_HTTPS_AGENT = new https.Agent({
   keepAlive: true,
   keepAliveMsecs: 15000,
@@ -71,8 +69,6 @@ function createDohResolver(options = {}) {
   const failUntil = new Map();
   let persistTimer = null;
   let closed = false;
-  // v3.4.0：端点健康度。连续失败后判定不可达，让上层立刻回退原生网络栈，
-  // 避免每个请求都白等 DoH 超时（直连模式下海报空白与播放卡顿的主因）。
   let endpointFailures = 0;
   let endpointLastOkAt = 0;
   let endpointLastFailAt = 0;
@@ -241,8 +237,6 @@ function createDohResolver(options = {}) {
     if (!host) return null;
     const cached = memoryGet(host);
     if (cached && cached.expiresAt > Date.now()) return cached;
-    // 端点已被判定不可达，或该域名刚解析失败：立刻返回陈旧结果，让上层走系统 DNS，
-    // 不再为每个 HLS 分片/每张海报重复等待 DoH 超时。
     const failedRecently = failUntil.get(host) || 0;
     if (failedRecently > Date.now() || !endpointHealthy()) return cached || null;
     const inFlight = pending.get(host);
