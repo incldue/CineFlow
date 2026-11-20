@@ -1,13 +1,5 @@
 'use strict';
 
-/**
- * 直连兜底（新增文件，零侵入）：
- * 无代理时系统 DNS 常被污染（api.themoviedb.org 拿到 202.160.x / 173.255.x 这类死地址），
- * Chromium 只能等到超时。这里同时问三个 DoH、把候选 IP 逐个 TLS 探活，
- * 留下真能握手的那个再直连（SNI/Host 仍是原域名，证书链照旧校验）。
- * 配了代理时 route 不是 DIRECT，本模块完全不介入。
- */
-
 const https = require('node:https');
 const http = require('node:http');
 const net = require('node:net');
@@ -33,23 +25,14 @@ const MAX_CANDIDATES = 6;
 const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 let earlyDirectTimer = null;
 const PROXY_PROBE_MS = Number(process.env.CINEFLOW_PROXY_PROBE_MS || 1200);
-/* 代理"健康"判定预算：必须比单次 CONNECT 往返宽裕。
-   实测 127.0.0.1:7897 → api.themoviedb.org CONNECT 需要 1269ms，→ image.tmdb.org 需要 3158ms。
-   用 1200ms 去判，慢但在用的代理会被误判成"死代理"，于是 forceDirect → 60s 后 restore →
-   再判死 → 循环。每次 setProxy 都会让 Chromium 重建连接池，用户感受到的就是周期性卡顿。
-   所以健康判定单独给 4500ms，并且要求连续两次失败才真的降级。 */
 const PROXY_HEALTH_MS = Number(process.env.CINEFLOW_PROXY_HEALTH_MS || 4500);
 const PROXY_DEAD_TTL_MS = 60 * 1000;
 const PROXY_ALIVE_TTL_MS = 60 * 1000;
 const PROXY_REPROBE_INTERVAL_MS = 60 * 1000;
 const MAP_MAX_TLS_MS = Number(process.env.CINEFLOW_MAP_MAX_TLS_MS || 400);
-
-// TMDB 官方别名（tmdb-resilience 的 sticky 端点）也必须直连解析，否则 DNS 污染时返回假页面。
 const TMDB_ALIAS_HOST = 'api.tmdb.org';
 
 const SKIP_EXTENSION_RE = /\.(ts|m4s|mp4|m4a|aac|flv|webm|mkv|mp3|wav|vtt|jpg|jpeg|png|webp|gif)(?:$|[?#])/i;
-
-// 媒体类 URL：走流式直连（不攒内存、Range 透传），保证播放器 seek/切集不卡。
 const MEDIA_URL_RE = /\.(?:m3u8|mpd|ts|m4s|mp4|m4a|aac|flv|webm|mkv|mp3|wav|vtt|jpg|jpeg|png|webp|gif)(?:$|[?#])/i;
 
 const AGENT = new https.Agent({ keepAlive: true, keepAliveMsecs: 20000, maxSockets: 96, maxFreeSockets: 24, timeout: 45000 });
@@ -191,10 +174,6 @@ function createNetRescue(options = {}) {
     const entry = goodIp.get(host);
     return entry && entry.latency ? entry.latency : 0;
   }
-
-  /* ---------- 真 IP 落盘缓存 ----------
-     无代理时 TMDB 只能靠 DoH 找 CloudFront 边缘；找到一次就存盘，
-     下次启动直接命中，不必再等 DoH + 多路探活（首次 0.6~2s → 之后 0ms）。 */
   const cacheFile = String(options.cacheFile || '');
   const RESTORED_TTL_MS = Number(process.env.CINEFLOW_RESTORED_IP_TTL_MS || 6 * 60 * 60 * 1000);
   let saveTimer = null;
@@ -234,7 +213,6 @@ function createNetRescue(options = {}) {
     } catch { /* ignore */ }
   }
 
-  // 立即落盘（节流 500ms）：真 IP 是"下次启动秒进 TMDB 模式"的关键，不能等到进程退出。
   function saveIpCache() {
     if (!cacheFile) return;
     const now = Date.now();
@@ -263,8 +241,6 @@ function createNetRescue(options = {}) {
     return merged.slice(0, MAX_CANDIDATES);
   }
 
-  // 并发探活所有候选，先到先用；再等 260ms 追赶窗口，拿到更快的那条就换成它。
-  // 直连 TMDB 的各家边缘 IP 差别很大（实测 2.5s ~ 5.8s），选错一个整页都慢。
   const PICK_CHASE_MS = Number(process.env.CINEFLOW_PICK_CHASE_MS || 260);
 
   function pickFastest(host, ips, secure) {
@@ -337,10 +313,6 @@ function createNetRescue(options = {}) {
     }
     resolveActive = Math.max(0, resolveActive - 1);
   }
-
-  /* TMDB 的官方别名与主域名是同一套 CloudFront 边缘（IP 可互换，SNI/Host 仍用原域名）。
-     DoH 偶尔只解析出其中一个（实测 api.tmdb.org 常常能解析、api.themoviedb.org 解析失败），
-     这时借用别名的真 IP 就能立刻连通——不需要再等一轮 DoH 超时。 */
   const HOST_ALIASES = {
     'api.themoviedb.org': ['api.tmdb.org'],
     'api.tmdb.org': ['api.themoviedb.org'],
@@ -392,11 +364,6 @@ function createNetRescue(options = {}) {
     resolving.set(key, task);
     return task;
   }
-
-  /* 预热连接：必须用"真 IP"去建连，否则 DNS 被污染时这一步等于白做。
-     https.Agent 的连接池按 host:port:servername 复用，所以这里用 (ip, servername=host)
-     建出来的 socket，正好会被后面 requestHost/streamHost 的请求复用 —— 首张海报、
-     首个 m3u8 分片都不必再等一次冷 TLS 握手（实测冷启 7.2s → 复用后 0.1s）。 */
   function warmUp(hosts) {
     const list = (Array.isArray(hosts) ? hosts : []).filter(Boolean);
     for (const entry of list) {
@@ -523,10 +490,6 @@ function createNetRescue(options = {}) {
       req.end();
     });
   }
-
-  /* 流式直连：视频分片、海报图这类大响应绝不能先攒进内存再吐给渲染层，
-     否则播放器要么等、要么直接被 buffer overflow 掐断。这里把上游 socket 直接
-     包成 ReadableStream，状态码/headers/Range 原样透传（206 partial content 可用）。 */
   function streamHost(host, ip, urlObj, init, hops) {
     const secure = urlObj.protocol !== 'http:';
     const lib = secure ? https : http;
@@ -667,10 +630,6 @@ function createNetRescue(options = {}) {
       setTimeout(() => finish(false), timeoutMs + 200);
     });
   }
-
-  /* 按主机测量"代理到这家主机"能不能连通、要多久。
-     Clash 之类的代理经常是"端口活着、但某些域名连不上"（实测 CONNECT api.themoviedb.org 直接挂死），
-     所以不能只看代理端口通不通，必须按目标主机分别判断。 */
   const PROXY_HOST_TTL_MS = 60 * 1000;
   const proxyHostState = new Map();
 
@@ -773,12 +732,6 @@ function createNetRescue(options = {}) {
       });
     return proxyState.inflight;
   }
-
-  // 启动早期的"抢先直连"：代理端口是通的、但 CONNECT 到 TMDB 迟迟不返（实测 7897 会挂满 4s），
-  // 这段时间里所有请求都要等代理超时，用户看到的就是"卡住/进不去"。这里给探测 900ms，
-  // 到点还没结论就先切直连；真代理稍后确认可用的话，restoreProxyIfAlive 会在 60s 内切回去。
-  // 阈值必须大于代理探测预算（默认 1200ms）：只兜住 TCP 通但 CONNECT 永不回这种真挂死，
-  // 慢一点但可用的代理仍然走代理，不会被抢走。
   const EARLY_DIRECT_MS = Number(process.env.CINEFLOW_EARLY_DIRECT_MS || 6000);
 
   function scheduleEarlyDirect(ses) {
@@ -793,8 +746,6 @@ function createNetRescue(options = {}) {
     }, EARLY_DIRECT_MS);
     if (typeof earlyDirectTimer.unref === 'function') earlyDirectTimer.unref();
   }
-
-  // 请求路径只读快照；探活放到后台，绝不阻塞任何一次 fetch
   function kickProxyProbe(ses) {
     const now = Date.now();
     if (proxyState.inflight) return;
@@ -854,12 +805,6 @@ function createNetRescue(options = {}) {
         proxyState.switching = false;
       });
   }
-
-  /* 反复切代理 = 反复丢弃 Chromium 的连接池。
-     实测同一次启动里出现 4 次 "已临时切到直连 / 代理恢复可用"：每一次都会让所有在飞的
-     海报、媒体分片重建 TCP+TLS，用户看到的就是"整体一顿一顿"。
-     现在加两道闸：① 两次切换之间至少间隔 RESTORE_COOLDOWN_MS；
-     ② 恢复代理必须连续两次探活成功（一次成功可能只是刚好赶上节点可用）。 */
   const RESTORE_COOLDOWN_MS = Number(process.env.CINEFLOW_PROXY_COOLDOWN_MS || 90000);
   let lastFlipAt = 0;
   let restoreVotes = 0;
@@ -890,7 +835,6 @@ function createNetRescue(options = {}) {
         .catch(() => false);
     probe.then((ok) => {
       if (!ok) {
-        // 代理仍然连不通：立刻切回直连，别让 Chromium 的图片/媒体请求再吃超时
         restoreVotes = 0;
         proxyState.overrode = false;
         return forceDirect(ses).then(() => {
@@ -981,9 +925,6 @@ function createNetRescue(options = {}) {
     'www.themoviedb.org'
   ]);
 
-  /* JSON 体检：无代理时最常见的坏结局不是"连不上"，而是"连上了一个假地址"——
-     返回 200 + HTML（运营商/污染页）。基线会把它当成功缓存 5 分钟，界面于是整片空白。
-     这里在返回给上层之前就把它判成失败，换 IP 重试。 */
   function looksJson(buffer) {
     if (!buffer || !buffer.length) return false;
     for (let i = 0; i < Math.min(buffer.length, 64); i += 1) {
@@ -993,12 +934,6 @@ function createNetRescue(options = {}) {
     }
     return false;
   }
-
-  /* 智能选路：这家主机到底走直连还是走代理。
-     ① 内存/落盘里已经有真 IP → 直接直连，零等待；
-     ② 会话本来就是 DIRECT → 解析真 IP 后直连；
-     ③ 会话走代理 → 分别量"代理到该主机"和"直连该主机"的成本，谁快走谁；
-        代理到该主机根本不通（-1）→ 立即直连，绝不等代理超时。 */
   async function planFor(host, ses) {
     const cached = cachedIp(host);
     if (cached) return { direct: true, ip: cached, cached: true };
@@ -1015,10 +950,6 @@ function createNetRescue(options = {}) {
     if (proxyMs > 0) {
       const directMs = cachedLatency(host) || 0;
       if (directMs && proxyMs > directMs + 350) return { direct: true, ip, cached: false, reason: 'direct-faster' };
-      /* 代理"能通但很慢"：实测 127.0.0.1:7897 → image.tmdb.org 的 CONNECT+TLS 要 3158ms，
-         而同一台主机直连只要 1279ms。海报是首页最密集的请求，一次冷握手 3 秒等于
-         "开代理就整体变慢"。既然已经拿到可用的真 IP，1.5 秒以上的代理握手直接让位给直连；
-         正常代理（CONNECT 300ms 量级）仍然照走代理，不会被抢。 */
       if (proxyMs >= 1500 && ip) {
         proxyHostState.set(host, { at: Date.now(), latency: proxyMs });
         debugLog('代理到 ' + host + ' 需 ' + proxyMs + 'ms，改用直连');
@@ -1027,11 +958,6 @@ function createNetRescue(options = {}) {
     }
     return { direct: false };
   }
-
-  /* 安装顺序问题：meta-server / source-compat / tmdb-resilience 都会在同一 session 上
-     再包一层 fetch，谁最后包谁在最外层。net-rescue 只有站在最外层才能真正接管 TMDB 请求，
-     否则 meta-server 的 DoH 通道会先一步把 api.themoviedb.org 吃掉，本模块永远看不到它。
-     reinstall() 就是"再包一次"，让本层重新回到最外层；已经是最外层时直接返回，不叠层。 */
   function wrapOnce(ses) {
     wrapSetProxy(ses);
     const original = ses.fetch.bind(ses);
@@ -1059,17 +985,10 @@ function createNetRescue(options = {}) {
       stats.requests += 1;
       const host = urlObj.hostname;
       debugLog('hit', urlObj.protocol, host, isMedia ? 'media' : '');
-
-      /* 直连优先（无代理也能用 TMDB + 播放器不断流的核心）：
-         媒体请求一律先试真 IP 流式直连（Range / 206 原样透传，边下边播不攒内存）；
-         其它请求在"已有真 IP / TMDB 关键主机"时也先试直连。
-         只有确认代理比直连更快时，planFor 才会返回 direct=false 交回 Chromium 走代理。 */
-      // 只对"已知真 IP / TMDB 关键主机"启用直连改道：任意视频 CDN 都做 DoH 反而会拖慢首帧。
       const needPlan = Boolean(cachedIp(host)) || RESCUE_HOSTS.has(host);
       if (needPlan) {
         const wantsJson = RESCUE_HOSTS.has(host) && urlObj.pathname.startsWith('/3/');
         const requestInit = wantsJson ? Object.assign({}, init, { __cfExpectJson: true }) : init;
-        // 假 200（污染页 HTML）在无代理环境里很常见：换 IP 重试，绝不把垃圾交给上层缓存。
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const plan = await planFor(host, ses).catch(() => null);
           if (!plan || !plan.direct || !plan.ip || isBad(plan.ip)) break;
@@ -1118,8 +1037,6 @@ function createNetRescue(options = {}) {
               return original(input, init);
             });
         }
-        // 正常路径：只让 Chromium 跑，不再双发对冲（避免把网络和主线程压力翻倍）；
-        // 只有在它真的失败之后才轮到 DoH 直连兜底。
         return original(input, init).catch((error) => {
           stats.fellBack += 1;
           return viaIp(urlObj, init)
