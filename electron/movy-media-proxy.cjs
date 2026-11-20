@@ -1,7 +1,4 @@
 'use strict';
-// Movy 播放流本地代理：主进程起一个只监听 127.0.0.1 的 HTTP 服务，
-// 由它带上 Referer/Origin 去取 m3u8 与分片，再回给渲染层（附 CORS 头）。
-// 这样播放完全不依赖 webRequest 的全局注册位，也不会被后续模块抢走。
 
 const http = require('node:http');
 const { URL } = require('node:url');
