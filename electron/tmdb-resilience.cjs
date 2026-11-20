@@ -1,18 +1,4 @@
 'use strict';
-/**
- * TMDB 网络韧性层（新增文件，零触碰架构基建）。
- * 根因（file:line 实证）：无代理环境下 DoH 单点上游（doh.cjs:9，oaifree 域）2.5s 超时
- * → 3 次熔断 20s → meta-server serveApi 抛错且包装层无回落 → 软超时吞错 → 会话永久跌落豆瓣。
- *
- * 方案：挂在 session.defaultSession.fetch 包装链【最外层】（ready+600ms 安装，确保在
- * meta-server 之上，能接住其抛错）：
- *   1. GET api.themoviedb.org/* 先走下层既有链路（meta-server DoH 直连）
- *   2. 失败/超时 → 依次尝试候选端点：api.tmdb.org（官方别名）+ 用户自配镜像
- *      （env CINEFLOW_TMDB_MIRRORS 或 compat 登记文件 tmdbMirrors 字段，可填自建反代）
- *   3. sticky 端点记忆：成功端点后续请求直连；后台 90s 健康探活失效重排
- * 镜像请求走下层原始链（镜像主机不在 meta-server 主机名单 → 自动透传，不递归）。
- * 纯 API 层；图片主机（image.tmdb.org）无官方镜像，本轮不动（诚实边界）。
- */
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -29,13 +15,12 @@ const MIRROR_TIMEOUT_MS = 6000;
 const state = {
   installed: false,
   session: null,
-  downstream: null,          // 下层链（meta-server → compat → 原始）
-  stickyOrigin: '',          // 记忆的成功端点 origin（'' = 默认链路）
+  downstream: null,          
+  stickyOrigin: '',         
   unhealthyAt: 0,
-  mirrors: [],               // 用户自配镜像 base（含官方别名）
+  mirrors: [],       
   registryPath: '',
-  active: false,             // 被动模式：默认零干预（与 3.4.4 网络行为完全一致）；
-                             // 仅当默认链路连续失败且某镜像可用时激活
+  active: false,      
   defaultFails: 0
 };
 
@@ -219,7 +204,7 @@ function installTmdbResilience({ app, session }) {
             return;
           }
         }
-        state.defaultFails = 0;   // 无可用镜像 → 重置计数，下轮再探
+        state.defaultFails = 0;   
       })().catch(() => {});
     }).catch(() => {});
   }, PROBE_INTERVAL_MS).unref?.();
