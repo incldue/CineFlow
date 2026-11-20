@@ -1,20 +1,14 @@
 'use strict';
-// Movy 内置播放源：/seed → /{city}/sources?enc=2 → 解密出画质列表。
-// 与原有资源体系隔离，不读写 resourceSettings / source-manager / source-engine。
-// 播放地址的 Referer 由 movy-media-proxy.cjs 在本地代理里补，不依赖 webRequest 注册位。
 
 const fsp = require('node:fs');
 const path = require('node:path');
 
-const RESULT_TTL_MS = 5 * 60 * 1000;            // 5 分钟内算「新鲜」，直接用
-const RESULT_STALE_MS = 6 * 60 * 60 * 1000;      // 6 小时内仍可先给用户看，同时后台刷新
-const SEED_TIMEOUT_MS = 4200;   // 直连实测 320–700ms；给到 4.2s 只为兜住劣质网络
+const RESULT_TTL_MS = 5 * 60 * 1000;          
+const RESULT_STALE_MS = 6 * 60 * 60 * 1000;     
+const SEED_TIMEOUT_MS = 4200;   
 const SOURCES_TIMEOUT_MS = 6500;
 const PROBE_CONCURRENCY = 4;
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-
-// 传输层顺序：Movy 直连会话 → session.fetch（应用带 DoH 兜底）→ net.fetch → global fetch。
-// 专用 direct 会话：应用启动前 6 秒处在代理探测窗口，默认 session 的请求会挂住。
 let movyDirectSession = null;
 function directSession() {
   try {
@@ -65,11 +59,6 @@ function withTimeout(promise, ms, label) {
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
-
-/**
- * 抓包开关：CINEFLOW_MOVY_CAPTURE=<文件路径> 时，把 /seed 与 /sources 的原始响应
- * 逐行追加进去。上游协议一旦换算法，用这份抓包可以直接离线复现（tests/fixtures）。
- */
 function capture(kind, pathname, text, file) {
   const target = file || process.env.CINEFLOW_MOVY_CAPTURE;
   if (!target) return;
@@ -78,12 +67,8 @@ function capture(kind, pathname, text, file) {
   } catch { /* 抓包失败不影响请求 */ }
 }
 
-/** ofetch 的最小实现：params 序列化 + 超时 + retry + 带 response.status 的错误 */
 function createOfetch(capturePath) {
   const netFetch = loadNet();
-  // 上游的种子缓存是「拿到结果后才写」，所以并发起的第二次 /seed 并不会命中它。
-  // 实测并发预热 4 台会对同一个 mediaId 连打 4 次种子（每次约 440ms，还容易 429）。
-  // 这里按 URL 把「在飞」的种子请求合并成一个，命中缓存后仍由上游自己接管。
   const seedFlights = new Map();
   async function rawOfetch(url, options = {}) {
     if (!netFetch) throw new Error('no fetch available');
@@ -95,7 +80,6 @@ function createOfetch(capturePath) {
         target.searchParams.set(key, String(value));
       }
     }
-    // 至少给一次重试机会：只对 429/5xx/网络错误生效，正常路径零额外延迟
     const retries = Math.max(1, Number(options.retry) || 0);
     const timeout = /\/seed/.test(target.pathname) ? SEED_TIMEOUT_MS : SOURCES_TIMEOUT_MS;
     let lastError = null;
@@ -104,7 +88,6 @@ function createOfetch(capturePath) {
       try {
         let response = null;
         let networkError = null;
-        // 逐层试传输：session.fetch（DoH + 直连兜底）失败再退 net.fetch，最后才放弃
         for (const transport of transports) {
           try {
             response = await withTimeout(transport.fn(target.toString(), {
@@ -188,7 +171,6 @@ function qualityMeta(raw) {
 }
 
 function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, ofetch = null } = {}) {
-  // 播放走本地代理：Referer/Origin 由主进程补，绕开 webRequest 注册位被抢的问题。
   let mediaProxy = null;
   try {
     const { createMovyMediaProxy } = require('./movy-media-proxy.cjs');
@@ -199,10 +181,10 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
   }
   const streamHosts = new Set();
   globalThis.__movyTransportWarn = (name, pathname) => log('movy 传输回退到 ' + name + '（' + pathname + '）');
-  const memory = new Map();          // key -> { savedAt, data }
-  const pending = new Map();         // key -> Promise（同一部片同一台服务器并发只打一次）
+  const memory = new Map();        
+  const pending = new Map();    
   let upstreamPromise = null;
-  let coolingUntil = 0;              // 上游 429 后的冷却截止时间
+  let coolingUntil = 0;       
   const COOL_MS = 8000;
   let cacheDir = '';
 
@@ -251,7 +233,6 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
     } catch { /* 缓存写失败不影响播放 */ }
   }
 
-  // 抓包开关：userData 下放一个 movy-capture.on 空文件即可，落地到 movy-capture.log
   function captureFile() {
     if (process.env.CINEFLOW_MOVY_CAPTURE) return process.env.CINEFLOW_MOVY_CAPTURE;
     if (!userDataDir) return '';
@@ -404,17 +385,9 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
     log('movy 源：' + provider.name + ' ' + sources.length + ' 档 · ' + (Date.now() - started) + 'ms');
     return { ...data, cached: false, ms: Date.now() - started };
   }
-
-  /**
-   * 并行预热：把 18 台服务器一次性拉起来（并发 6），每完成一台立刻回调。
-   * 这正是 Movy 播放页的做法 —— 你还在看简介，它已经把每台服务器的片源清单都存好了，
-   * 所以点开画质菜单永远不会等网络。第一台含种子握手约 760ms，之后每台复用种子约 320ms，
-   * 三波并发打完 18 台约 1s。
-   */
   async function warm(input = {}, hooks = {}) {
     const { providers } = await getUpstream();
     const concurrency = Math.max(1, Math.min(4, Number(input.concurrency) || 2));
-    // 只热身用户最先看到的那几台：并发打满会被上游 429（实测打完 18 台全变 429）
     const head = Math.max(1, Math.min(providers.length, Number(input.head) || 4));
     const wanted = Array.isArray(input.providers) && input.providers.length
       ? providers.filter((item) => input.providers.includes(item.name))
@@ -426,7 +399,6 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
       let launched = 0;
       while (cursor < targets.length) {
         const provider = targets[cursor++];
-        // 第一台立刻开跑（它在最前面，用户最可能点它）；之后每台之间错峰，避免上游 429
         if (launched++ > 0) {
           await new Promise((resolve) => setTimeout(resolve, 320 + Math.round(Math.random() * 160)));
         }
@@ -477,13 +449,6 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
     results.sort((a, b) => providers.findIndex((p) => p.name === a.provider) - providers.findIndex((p) => p.name === b.provider));
     return { results };
   }
-
-  /**
-   * 启动即热身：
-   *   ① 装配上游模块（18 台服务器 + 密码器），把首次请求的模块初始化成本挪走；
-   *   ② 主动建连一次（DNS + TLS + HTTP/2 协商），用户第一次真正取源时少付一个 RTT。
-   *      无代理直连时这一下能省 100~400ms，失败静默，不影响任何功能。
-   */
   async function prewarm() {
     try {
       const { providers, streamOrigin } = await getUpstream();
@@ -548,7 +513,6 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
         return { results: [], error: String(error && error.message || error) };
       }
     });
-    // 预热：立刻返回，逐台结果用 webContents.send 推回渲染层（渲染层永不阻塞等网络）
     ipcMain.handle(names.warm, async (event, payload = {}) => {
       try {
         const movieKey = [payload.mediaType || 'movie', payload.tmdbId || 0, payload.seasonId || 1, payload.episodeId || 1].join(':');
