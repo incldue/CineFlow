@@ -1,23 +1,9 @@
 'use strict';
-/**
- * v3.4.1 纯增量：TMDB 应用内凭证向导的主进程状态机。
- *
- * 只做 TMDB 官方文档里的 v4「Application Default Credentials」授权流：
- *   1) GET  /3/authentication/token/new?api_key=...      （这一步 TMDB 要求已有 v3 Key，无法跳过）
- *   2) 浏览器打开 https://www.themoviedb.org/auth/access?request_token=...，由用户自己点"批准"
- *   3) POST /4/authentication/access_token {request_token}  换回 Read Access Token
- *   4) 交给主进程既有的保存链路写进本机 settings.json
- *
- * 刻意不碰注册、CAPTCHA、邮箱验证、开发者表格审批 —— 那些是 TMDB 自己的准入环节。
- * 没有 v3 Key 时本模块直接返回 NEED_API_KEY，由渲染层改走"打开申请页 + 剪贴板自动识别"的引导路径。
- * 整个文件删掉 + 撤掉 main.cjs 末尾那一段挂钩，应用就退回第十二轮的设置页形态。
- */
+
 
 const APPROVAL_BASE = 'https://www.themoviedb.org/auth/access';
 const API3_HOSTS = ['https://api.themoviedb.org/3'];
 const API4_HOSTS = ['https://api.tmdb.org/4', 'https://api.themoviedb.org/4'];
-// 换 Read Access Token 的两个候选路径：TMDB 文档写的是 /4/auth/access_token，
-// 早期实现走的是 /4/authentication/access_token，两个都试一遍，谁先回 200 用谁。
 const ACCESS_TOKEN_PATHS = ['/auth/access_token', '/authentication/access_token'];
 const POLL_INTERVAL_MS = 2500;
 const APPROVAL_TIMEOUT_MS = 6 * 60 * 1000;
@@ -25,7 +11,6 @@ const APPROVAL_TIMEOUT_MS = 6 * 60 * 1000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const now = () => Date.now();
 
-// 剪贴板里的东西是不是一个能用的 TMDB 凭证：v3 Key 是 32 位十六进制，v4 用户令牌以 eyJ 开头的 JWT
 function classifyCredential(raw) {
   const value = String(raw || '').replace(/\s+/g, '');
   if (!value) return null;
@@ -34,7 +19,6 @@ function classifyCredential(raw) {
   return null;
 }
 
-// TMDB 各处返回字段不完全一致：access_token 既可能是对象也可能是字符串，token 也可能直接挂在顶层
 function pickAccessToken(payload) {
   if (!payload) return '';
   if (typeof payload === 'string') return payload.trim();
@@ -117,12 +101,10 @@ function createTmdbAuthFlow(deps) {
         result = await requestJson(API4_HOSTS, path, {
           method: 'POST',
           body: { request_token: flow.requestToken },
-          // 换 token 这一步 TMDB 也认 api_key；带上不影响结果，漏了则可能一路 401
           apiKey: flow.apiKey,
         });
         if (!flow || flow.done) return;
         if (result.ok) break;
-        // 401/404 说明这条路径还没通（未批准 / 路径不对），换下一条；其它错误直接认栽
         if (result.status && result.status !== 401 && result.status !== 404) break;
       }
       if (result.ok) {
