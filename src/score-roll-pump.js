@@ -1,12 +1,11 @@
-
 import { requestTick, subscribe } from './motion-scheduler.js';
 
 const ROLL_FLAG = 'data-cf30-roll';
 const ARMED_FLAG = 'data-cf30-roll-armed';
 const PILL_SELECTOR = '.score-pill';
-/** D2 的 DURATION 是 700ms；留 400ms 余量给慢机器上的首帧。 */
+
 const PUMP_MS = 1100;
-/** 还原兜底：翻滚结束后再看一眼，确认没有被冻在 0.0。 */
+
 const VERIFY_DELAY_MS = 260;
 const BASE_TEXT = new WeakMap();
 const PENDING = new Set();
@@ -24,7 +23,6 @@ function now() {
   }
 }
 
-/** 泵：write 里发现还没到截止时间就再要一帧。 */
 const pumpSub = {
   active: true,
   write(_result, timestamp) {
@@ -51,7 +49,6 @@ function startPump(ms = PUMP_MS) {
 
 const RATING_RE = /^★\s*(\d+(?:\.\d+)?)\s*·?\s*([\s\S]*)$/;
 
-/** 翻滚开始前抓一份原文（此时 textContent 还是真实评分）。 */
 function remember(pill) {
   try {
     if (!(pill instanceof HTMLElement)) return;
@@ -61,7 +58,7 @@ function remember(pill) {
     if (!matched) return;
     BASE_TEXT.set(pill, text);
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -72,7 +69,6 @@ function ratingOf(text) {
   return Number.isFinite(value) ? value : null;
 }
 
-/** 真实评分：先看翻滚前抓到的原文，再看豆瓣条目的 rating。 */
 function truthFor(pill) {
   const base = BASE_TEXT.get(pill);
   const fromBase = base ? ratingOf(base) : null;
@@ -86,7 +82,7 @@ function truthFor(pill) {
       return { value: rating, text: '★ ' + rating.toFixed(1) + ' · ' + (suffix || '').trim() };
     }
   } catch (error) {
-    /* 忽略 */
+
   }
   return null;
 }
@@ -97,7 +93,7 @@ function restore(pill) {
     const shown = ratingOf(pill.textContent);
     const truth = truthFor(pill);
     if (!truth) return false;
-    // 只有"被写成 0.0 而真值不为 0"才动它；已经翻到位的绝不覆盖
+
     if (shown !== null && shown > 0) return false;
     pill.textContent = truth.text;
     return true;
@@ -142,7 +138,7 @@ function scan(root) {
       else remember(pill);
     });
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -153,8 +149,7 @@ function onMutations(records) {
         const target = record.target;
         if (!(target instanceof HTMLElement) || !target.classList.contains('score-pill')) continue;
         if (record.attributeName === ARMED_FLAG) {
-          // rollScore 在 IntersectionObserver 回调里才会写 textContent，
-          // 这里还在回调之前的微任务里，抓到的就是真实评分
+
           remember(target);
         } else if (record.attributeName === ROLL_FLAG) {
           handle(target);
@@ -172,7 +167,7 @@ function onMutations(records) {
       }
     }
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -186,7 +181,7 @@ function fixUnrated(pill) {
     if (!card || !card.hasAttribute('data-cf8-douban')) return false;
     const item = card.__cf8Item;
     if (!item) return false;
-    if (String(item.rating || '').trim()) return false;      // 有分，不动
+    if (String(item.rating || '').trim()) return false;
     const text = (pill.textContent || '').trim();
     const matched = text.match(ZERO_PILL_RE);
     if (!matched) return false;
@@ -202,7 +197,7 @@ function scanUnrated(root) {
     const host = root instanceof Element || root instanceof Document ? root : document;
     host.querySelectorAll?.('.movie-card[data-cf8-douban] .score-pill').forEach(fixUnrated);
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -223,12 +218,11 @@ function bind() {
     bound = true;
     return true;
   } catch (error) {
-    try { console.warn('[CineFlow] 评分补帧装配失败，已跳过', error); } catch (e) { /* 忽略 */ }
+    try { console.warn('[CineFlow] 评分补帧装配失败，已跳过', error); } catch (e) {  }
     return false;
   }
 }
 
-/** 装配入口，由 src/incremental-pages.js 一行调用；重复调用安全。 */
 export function initScoreRollPump() {
   try {
     return bind();

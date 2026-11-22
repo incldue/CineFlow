@@ -1,4 +1,3 @@
-
 const BLUR_GRACE_MS = 1500;
 const SWITCH_HARD_TIMEOUT_MS = 1200;
 
@@ -42,7 +41,7 @@ function anyReasonActive(diag) {
     if (switching) {
       if (!switchingSince) switchingSince = Date.now();
       else if (Date.now() - switchingSince > SWITCH_HARD_TIMEOUT_MS) {
-        // 硬超时：cf3-switching 万一因异常残留，不让定时器永久停摆
+
         switching = false;
         switchingSince = 0;
       }
@@ -52,7 +51,7 @@ function anyReasonActive(diag) {
     diag.scrolling = scrolling;
     diag.switching = switching;
   } catch (error) {
-    /* 读状态失败按「无 reason」处理，宁可多跑 */
+
   }
   return diag.hidden || diag.blurred || diag.scrolling || diag.switching;
 }
@@ -78,7 +77,7 @@ function patchSetInterval(diag) {
         }
         diag.ran += 1;
       } catch (error) {
-        /* 诊断失败也要照常跑 */
+
       }
       try {
         return handler.apply(this, args);
@@ -87,11 +86,10 @@ function patchSetInterval(diag) {
       }
     };
 
-    // 让 clearInterval 能认出包装后的句柄与原始 handler
     try {
       Object.defineProperty(guarded, 'cf34Original', { value: handler, configurable: true });
     } catch (error) {
-      /* 忽略 */
+
     }
     hosted.add(handler);
     hosted.add(guarded);
@@ -109,11 +107,10 @@ function watchReasons(diag) {
     try {
       diag.hidden = document.visibilityState === 'hidden';
     } catch (error) {
-      /* 忽略 */
+
     }
   };
 
-  // hidden
   document.addEventListener(
     'visibilitychange',
     () => {
@@ -122,7 +119,6 @@ function watchReasons(diag) {
     { capture: true, passive: true }
   );
 
-  // blurred：失焦后延迟 BLUR_GRACE_MS 才生效，期间任何交互立刻复位
   let blurTimer = 0;
   const clearBlurTimer = () => {
     if (blurTimer) {
@@ -150,7 +146,6 @@ function watchReasons(diag) {
   document.addEventListener('keydown', releaseBlur, { capture: true, passive: true });
   document.addEventListener('focusin', releaseBlur, { capture: true, passive: true });
 
-  // 首帧先采一次，避免启动期就带错状态
   sample();
   return true;
 }

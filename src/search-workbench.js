@@ -1,20 +1,19 @@
-
 import { openDoubanSheet } from './douban-fallback.js';
 
 const PANEL_ID = 'cf25SearchHub';
-const LIFT_CLASS = 'cf25-detail-lift';   // 临时把 #detailPanel 抬到搜索页之上
+const LIFT_CLASS = 'cf25-detail-lift';
 const HISTORY_KEY = 'cineflow:search-history:v2';
 const ISLAND_CLASSES = ['island-mode', 'island-expanded-mode', 'island-docked-mode'];
 
-const DEBOUNCE_MS = 320;          
-const FAST_LATENCY_MS = 900;   
+const DEBOUNCE_MS = 320;
+const FAST_LATENCY_MS = 900;
 const MID_LATENCY_MS = 2000;
-const MAX_CHIPS = 4;             
+const MAX_CHIPS = 4;
 const HISTORY_LIMIT = 8;
-const POSTER_CONCURRENCY = 4;     
-const POSTER_MAX_PER_TURN = 24;   
-const PLAY_WAIT_MS = 6000;       
-const PLAY_POLL_MS = 240;    
+const POSTER_CONCURRENCY = 4;
+const POSTER_MAX_PER_TURN = 24;
+const PLAY_WAIT_MS = 6000;
+const PLAY_POLL_MS = 240;
 
 const els = {
   panel: null,
@@ -39,14 +38,14 @@ const hub = {
   knownSources: [],
   posterSeq: 0,
   posterResolved: new Map(),
-  posterPending: new Set(),   // 已在队列里/在飞的 URL，重渲染时不得重复入队
-  posterWaiters: new Map(),   // URL -> 等这张图的 img 节点列表
+  posterPending: new Set(),
+  posterWaiters: new Map(),
   posterQueue: [],
   posterActive: 0,
   hideTimer: 0,
   detailWatcher: null,
   settleTimer: 0,
-  sources: new Map(),     // sourceId -> SourceState
+  sources: new Map(),
   groups: [],
   unsubscribe: null,
   visible: false,
@@ -56,7 +55,7 @@ let deps = {};
 
 function esc(value) {
   if (typeof deps.escapeHtml === 'function') {
-    try { return deps.escapeHtml(value); } catch { /* 落到本地实现 */ }
+    try { return deps.escapeHtml(value); } catch {  }
   }
   return String(value == null ? '' : value)
     .replaceAll('&', '&amp;')
@@ -139,26 +138,26 @@ function buildPanel() {
   return panel;
 }
 
-/* ============ 显隐 ============ */
-
 const FADE_OUT_MS = 170;
 
 function keepOnTop() {
+
   try {
     const host = document.getElementById('app');
     if (host && els.panel && els.panel.parentElement !== host) host.appendChild(els.panel);
-  } catch { /* ignore */ }
+  } catch {  }
 }
 
 function show() {
   if (!els.panel) return;
   keepOnTop();
-  // 正在淡出时又被唤起：掐掉收尾定时器，从当前透明度继续淡入，不重排
+
   if (hub.hideTimer) { window.clearTimeout(hub.hideTimer); hub.hideTimer = 0; }
   if (hub.visible) return;
   hub.visible = true;
   els.panel.classList.remove('is-hidden');
   els.panel.setAttribute('aria-hidden', 'false');
+
   let opened = false;
   const markOpen = () => {
     if (opened) return;
@@ -168,6 +167,7 @@ function show() {
   requestAnimationFrame(markOpen);
   window.setTimeout(markOpen, 32);
 }
+
 function hide({ keepState = false } = {}) {
   if (!els.panel) return;
   const wasVisible = hub.visible;
@@ -181,7 +181,7 @@ function hide({ keepState = false } = {}) {
     hub.hideTimer = 0;
     return;
   }
-  // 主路径：等 transition 真正结束（窗口被遮挡时定时器会被节流，靠它更稳）
+
   const finish = () => {
     if (hub.visible) return;
     els.panel?.classList.add('is-hidden');
@@ -194,7 +194,7 @@ function hide({ keepState = false } = {}) {
     };
     els.panel.addEventListener('transitionend', onEnd);
   }
-  // 兜底：没有 transitionend（元素被隐藏 / 过渡被禁用）时也要收口
+
   hub.hideTimer = window.setTimeout(() => {
     hub.hideTimer = 0;
     finish();
@@ -212,8 +212,6 @@ function clearPanelState() {
   if (els.empty) els.empty.classList.add('is-hidden');
   if (els.headCount) els.headCount.textContent = '';
 }
-
-/* ============ 逐源状态条 ============ */
 
 function renderSources() {
   if (!els.sources) return;
@@ -234,8 +232,6 @@ function renderSources() {
     ].join('');
   }).join('');
 }
-
-/* ============ 分组列表 ============ */
 
 function groupRowHtml(group) {
   const hits = Array.isArray(group.hits) ? group.hits : [];
@@ -258,8 +254,7 @@ function groupRowHtml(group) {
     ? '<span class="cf25-chip is-more">+' + (hits.length - MAX_CHIPS) + '</span>'
     : '';
   const meta = [group.year, group.type, hits.length + ' 个片源'].filter(Boolean).join(' · ');
-  // 注意：渲染层是 file:// origin，直接 <img src="https://源站/…"> 必被热链拦截，
-  // 因此这里只放一个带 data-cf25-img 的空壳，由 enqueuePoster 走主进程中转填入 data URL。
+
   const poster = group.poster
     ? '<img class="cf25-poster-img is-pending" data-cf25-img="' + esc(group.poster) + '" alt="" decoding="async" />'
       + '<span class="cf25-ph">海报加载中</span>'
@@ -292,12 +287,12 @@ function enqueuePoster(imgEl) {
   const cached = hub.posterResolved.get(url);
   if (cached !== undefined) { applyPoster(imgEl, cached); return; }
   if (hub.posterPending.has(url)) {
-    // 已在飞：等它落地后由 resolvePoster 统一回填（这里先挂个观察者）
+
     hub.posterWaiters.set(url, (hub.posterWaiters.get(url) || []).concat(imgEl));
     return;
   }
   if (hub.posterSeq >= POSTER_MAX_PER_TURN) {
-    // 超预算：等本轮收口后的补救扫描（flushPosters）
+
     return;
   }
   hub.posterSeq += 1;
@@ -308,11 +303,11 @@ function enqueuePoster(imgEl) {
 
 function applyPoster(imgEl, result) {
   if (!imgEl) return;
-  // isConnected 在极少数宿主/测试桩里没有，缺省按"仍挂着"处理，避免白等
+
   if (imgEl.isConnected === false) return;
   const holder = imgEl.parentElement;
   if (result && result.dataUrl) {
-    // 走 setAttribute：真实 DOM 与 img.src= 等价，但宿主/测试桩里更稳
+
     if (typeof imgEl.setAttribute === 'function') imgEl.setAttribute('src', result.dataUrl);
     else imgEl.src = result.dataUrl;
     imgEl.classList.remove('is-pending');
@@ -353,7 +348,7 @@ async function resolvePoster(job) {
   hub.posterResolved.set(job.url, normalized);
   hub.posterPending.delete(job.url);
   applyPoster(job.imgEl, normalized);
-  // 重渲染期间挂上来的同 URL 节点一并回填
+
   const waiters = hub.posterWaiters.get(job.url);
   if (waiters) {
     hub.posterWaiters.delete(job.url);
@@ -365,7 +360,7 @@ function scanPosters() {
   if (!els.groups) return;
   const nodes = els.groups.querySelectorAll('img[data-cf25-img]');
   for (const node of nodes) enqueuePoster(node);
-  // 视口内的优先：先解析可见的分组，滚动下来的稍后补
+
   hub.posterQueue.sort((a, b) => {
     const av = a.imgEl.isConnected ? 1 : 0;
     const bv = b.imgEl.isConnected ? 1 : 0;
@@ -385,8 +380,6 @@ function flushPosters() {
   }
   pumpPosterQueue();
 }
-
-/* ============ 骨架 / 空态 ============ */
 
 function renderSkeleton(active) {
   if (!els.skeleton) return;
@@ -417,8 +410,6 @@ function renderEmpty(kind, query) {
   els.empty.classList.remove('is-hidden');
 }
 
-/* ============ 历史词行 ============ */
-
 function readHistory() {
   try {
     const raw = window.localStorage.getItem(HISTORY_KEY);
@@ -447,8 +438,6 @@ function renderHistory() {
   els.history.classList.remove('is-hidden');
 }
 
-/* ============ 搜索生命周期 ============ */
-
 function bumpSearchId() {
   hub.searchId += 1;
   return hub.searchId;
@@ -457,7 +446,7 @@ function bumpSearchId() {
 function cancelRunning() {
   const api = deps.api;
   if (!api || !api.cf25Cancel) return;
-  try { api.cf25Cancel({ searchId: hub.searchId }); } catch { /* 主进程已重启等 */ }
+  try { api.cf25Cancel({ searchId: hub.searchId }); } catch {  }
 }
 
 function resetForNewQuery(query) {
@@ -482,16 +471,14 @@ async function startSearch(query) {
   const api = deps.api;
   if (!api || typeof api.cf25Start !== 'function') return;
 
-  // 代次：先作废上一次（含其主进程单飞槽），再取新号；后续所有事件按 searchId 守卫
   const previous = hub.searchId;
   hub.searchId = previous + 1;
   const mine = hub.searchId;
-  try { api.cf25Cancel({ searchId: previous }); } catch { /* 主进程未就绪 */ }
+  try { api.cf25Cancel({ searchId: previous }); } catch {  }
 
   resetForNewQuery(query);
   show();
-  // 先用上一次已知的片源清单铺等待态（0ms，不等 IPC 往返），
-  // 等 cf25Start 返回真实清单后再覆盖一次。
+
   if (hub.knownSources.length) {
     for (const source of hub.knownSources) {
       hub.sources.set(source.sourceId, {
@@ -525,14 +512,13 @@ async function startSearch(query) {
     return;
   }
 
-  // 记住片源清单：下一次搜索可以 0ms 铺出等待态，不用等 IPC 往返
   if (Array.isArray(response.sources) && response.sources.length) {
     hub.knownSources = response.sources.map((source) => ({
       sourceId: source.sourceId,
       name: source.name
     }));
   }
-  // 立即铺出逐源等待态：这是「毫秒级响应」的观感来源
+
   for (const source of response.sources || []) {
     hub.sources.set(source.sourceId, {
       sourceId: source.sourceId,
@@ -569,7 +555,7 @@ function applyProgress(payload) {
     for (const source of payload.sources || []) hub.sources.set(source.sourceId, source);
     renderSources();
     renderSkeleton(false);
-    // 结果集已固定：放开预算补扫一遍，保证源站有图就一定有封面
+
     flushPosters();
     if (!hub.viewGroups.length) renderEmpty('no-hits', hub.query);
     else renderEmpty(null);
@@ -583,8 +569,6 @@ function applyProgress(payload) {
     }
   }
 }
-
-/* ---- 归并：复刻 Lumina buildGroups（归一化已在主进程算好） ---- */
 
 function mergeHits(hits) {
   const index = new Map(hub.groups.map((group) => [group.key, group]));
@@ -609,7 +593,9 @@ function mergeHits(hits) {
 const VERSION_SUFFIX = /(国语|粤语|英语|原声|中字|中文字幕|双字|国粤双语|双语|高清|超清|蓝光|完整版|未删减版?|加长版|抢先版|枪版|特别版|特别篇|纪念版|周年纪念版|导演剪辑版|hd|bd|4k|1080p|2160p)+$/i;
 
 const TRAILING_PAREN = /[（(]\s*([^（）()]{1,8})\s*[)）]\s*$/;
+
 const FOREIGN_ALIAS = /^(.*[\u4e00-\u9fff])\s+([^\u4e00-\u9fff]{2,})$/;
+
 function cleanDisplayTitle(title) {
   const raw = String(title || '');
   const head = raw.split(/[$|\n\r]/)[0] || '';
@@ -619,7 +605,7 @@ function cleanDisplayTitle(title) {
 function baseDisplayTitle(title) {
   let text = cleanDisplayTitle(title);
   for (let i = 0; i < 4; i += 1) {
-    // 括号限定 → 版本后缀 → 外语别名，三步都可能互相暴露，故循环到稳定
+
     const before = text;
     text = text.replace(TRAILING_PAREN, '').trim() || text;
     text = text.replace(VERSION_SUFFIX, '').trim() || text;
@@ -629,7 +615,6 @@ function baseDisplayTitle(title) {
   return text;
 }
 
-/** 相关度档位：0 完全同名 / 1 前缀命中（更可能是正主）/ 2 其它 */
 function relevanceRank(base, queryNorm) {
   if (!queryNorm) return 1;
   if (base === queryNorm) return 0;
@@ -637,10 +622,6 @@ function relevanceRank(base, queryNorm) {
   return 2;
 }
 
-/**
- * 把片源口径的分组重建成影视口径。
- * 合并规则：同 base 标题 → 年份相同或一方缺失时并成一行；年份都不同则各自成行（续集不能混）。
- */
 function rebuildViewGroups() {
   const clusters = new Map();
   for (const group of hub.groups) {
@@ -653,7 +634,7 @@ function rebuildViewGroups() {
 
   const view = [];
   for (const [base, members] of clusters) {
-    // 先按年份分桶：有年份的各成一桶，没年份的归到「已存在的唯一桶」或「无年份桶」
+
     const byYear = new Map();
     const loose = [];
     for (const member of members) {
@@ -700,7 +681,7 @@ function rebuildViewGroups() {
   const queryNorm = baseDisplayTitle(hub.query || '');
   for (const group of view) {
     group.rank = relevanceRank(group.base, queryNorm);
-    // 越小越靠前：相关度档位 > 标题贴近查询词（短）> 片源多
+
     group.weight = group.rank * 1000
       + Math.min(group.base.length, 40) * 4
       - Math.min(group.hits.length, 20) * 5;
@@ -709,7 +690,6 @@ function rebuildViewGroups() {
   hub.viewGroups = view;
 }
 
-/** 取本桶里最短的干净标题当行标题（最短的那个最可能是正主，而不是「XX国语版」） */
 function rawTitleOf(members, fallback) {
   let best = '';
   for (const member of members) {
@@ -719,6 +699,7 @@ function rawTitleOf(members, fallback) {
   }
   return best || fallback;
 }
+
 function findGroup(key) {
   if (!key) return null;
   return hub.viewGroups.find((item) => item.key === key)
@@ -729,7 +710,6 @@ function findGroup(key) {
 function exitToRelated(group) {
   cancelRunning();
   bumpSearchId();
-  // 只关掉逐源计时，不收起搜索页
 
   let settled = false;
   const settle = (movie) => {
@@ -739,12 +719,10 @@ function exitToRelated(group) {
     else openDoubanAbove(group);
   };
 
-  // TMDB 请求悬挂时也不能让用户干等：900ms 后直接走豆瓣卡
   window.setTimeout(() => settle(null), 900);
   resolveMovie(group).then(settle).catch(() => settle(null));
 }
 
-/** TMDB 命中：侧栏详情滑出，并临时抬到搜索页之上 */
 function openDetailAbove(movie, group) {
   const open = window.__cineflowOpenDetails;
   if (typeof open !== 'function') { openDoubanAbove(group); return; }
@@ -758,7 +736,6 @@ function openDetailAbove(movie, group) {
   watchDetailClose();
 }
 
-/** TMDB 未命中：复用豆瓣兜底详情卡 */
 function openDoubanAbove(group) {
   const isTv = /tv|剧|综艺|动漫|纪录/.test(String(group.type || ''));
   const firstHit = (group.hits && group.hits[0]) || {};
@@ -772,14 +749,10 @@ function openDoubanAbove(group) {
       year: group.year || '',
       releaseDate: group.year ? group.year + '-01-01' : ''
     });
-  } catch { /* 卡片打不开也不阻塞搜索页 */ }
+  } catch {  }
   paintSheetPoster(group);
 }
 
-/**
- * 豆瓣卡自己的封面走 doubanImageDataUrl，只认真人豆瓣/EveryFilm 域名，
- * 源站图床一律被拒。这里用我们自己的中转把它补上。
- */
 function paintSheetPoster(group) {
   const url = group && group.poster;
   if (!url) return;
@@ -809,12 +782,11 @@ function paintSheetPoster(group) {
   }, 1200);
 }
 
-/** 侧栏详情一收（基线自己摘 is-open）就撤掉层级抬升，避免影响其它页面 */
 function watchDetailClose() {
   if (hub.detailWatcher) return;
   const panel = document.querySelector('#detailPanel');
   if (!panel) {
-    // 面板还没进 DOM：稍后补挂一次
+
     window.setTimeout(() => { if (!hub.detailWatcher) watchDetailClose(); }, 800);
     return;
   }
@@ -826,16 +798,14 @@ function watchDetailClose() {
   hub.detailWatcher.observe(panel, { attributes: true, attributeFilter: ['class'] });
 }
 
-/** 搜索页上是否正压着一层详情（侧栏 or 豆瓣卡） */
 function overlayDetailOpen() {
   try {
     if (document.querySelector('#detailPanel.is-open')) return true;
     if (document.querySelector('.cf8-sheet.is-open')) return true;
-  } catch { /* 查询失败按未打开处理 */ }
+  } catch {  }
   return false;
 }
 
-/** 用基线 searchMovies 找到最匹配的一部，标题归一化 + 年份加权 */
 async function resolveMovie(group) {
   const api = deps.api;
   if (!api || typeof api.searchMovies !== 'function') return null;
@@ -920,8 +890,6 @@ function openRelatedCard(title, year, deadline) {
   window.setTimeout(tick, 60);
 }
 
-/* ============ 点击处理 ============ */
-
 function onClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
@@ -953,7 +921,7 @@ function onClick(event) {
 
   const related = target.closest('[data-cf25-related]');
   if (related) {
-    // 分组键直接挂在按钮上：不依赖 article 的 DOM 嵌套，重渲染/结构微调都不会失配
+
     const key = related.getAttribute('data-cf25-key')
       || related.closest('.cf25-group')?.getAttribute('data-cf25-key')
       || '';
@@ -968,7 +936,6 @@ function onClick(event) {
     return;
   }
 
-  // 无输入时点搜索页任意位置 → 退出模糊层回到原页面（详情压在上面时不收）
   if (!String(queryNow()).trim() && !overlayDetailOpen()) dismissSearchPage();
 }
 
@@ -991,7 +958,7 @@ async function fetchPlayable(payload, preferredSourceKey) {
         ? resources.find((row) => String(row && row.sourceKey) === String(preferredSourceKey))
         : null;
       const picked = exact || resources[0];
-      // 首选源还没出现但已有别的可播源：给首选源再一轮机会，仍无则用兜底
+
       if (exact) return exact;
       fallback = picked;
     }
@@ -999,14 +966,14 @@ async function fetchPlayable(payload, preferredSourceKey) {
     const next = Number(response?.nextCursor);
     if (Number.isFinite(next) && next > cursor) cursor = next;
     else if (!resources.length) cursor += 3;
-    // 聚合是渐进推送的：必须留出时间让后续批次产生，否则一直拿到同一批快照
+
     await new Promise((resolve) => window.setTimeout(resolve, PLAY_POLL_MS));
   }
   return fallback;
 }
 
 async function playChip(button) {
-  // 分组键优先取按钮自身的 data 属性（chip 由 data-cf25-play 的 key 传递）
+
   const key = button.getAttribute('data-cf25-key')
     || button.closest('.cf25-group')?.getAttribute('data-cf25-key')
     || '';
@@ -1035,8 +1002,6 @@ async function playChip(button) {
     const open = window.__cineflowOpenResourcePlayer;
     if (typeof open !== 'function') { flash(button, '播放器入口不可用'); return; }
 
-    // 有播放列表就注册进基线 state.resourcePlaylists，播放器内可切集；
-    // 注册失败（极端降级）也不影响首条起播。
     const payload = {
       url: episode.url,
       kind: episode.kind || '',
@@ -1087,8 +1052,6 @@ function flash(button, text) {
   window.setTimeout(() => button.classList.remove('is-blocked'), 1400);
 }
 
-/* ============ 事件旁听 ============ */
-
 function scheduleSearch(query) {
   window.clearTimeout(hub.settleTimer);
   if (!query) {
@@ -1124,7 +1087,6 @@ function bindInput() {
     openSearchPage();
   }, true);
 
-  // 点搜索框（含已经聚焦时再次点击）也要展开：focusin 只在第一次聚焦时触发
   window.addEventListener('pointerdown', (event) => {
     const input = inputEl();
     if (!input || event.target !== input) return;
@@ -1143,11 +1105,6 @@ function bindInput() {
   }, true);
 }
 
-/**
- * 打开搜索页。
- * - 已有查询词且已有对应分组：保留现状，只把面板展开（不打断结果）；
- * - 其余情况：走空查询态（历史词 chip），等用户输入。
- */
 function openSearchPage() {
   if (!els.panel) return;
   const query = String(queryNow()).trim();
@@ -1158,18 +1115,16 @@ function openSearchPage() {
   showEmptyQueryState();
 }
 
-/** 退出搜索页：收起面板 + 让搜索框失焦，回到原页面 */
 function dismissSearchPage() {
   cancelRunning();
   bumpSearchId();
   hide();
   const input = inputEl();
   if (input) {
-    try { input.blur(); } catch { /* 失焦失败不影响收起 */ }
+    try { input.blur(); } catch {  }
   }
 }
 
-/** 空查询态：只出历史词，不出逐源条 / 分组 / 骨架 */
 function showEmptyQueryState() {
   if (!els.panel) return;
   hub.query = '';
@@ -1199,7 +1154,7 @@ function bindEscape() {
   window.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     if (!hub.visible) return;
-    // 详情卡/侧栏开着时，Escape 归它们自己的收回逻辑，搜索页不动
+
     if (overlayDetailOpen()) return;
     cancelRunning();
     bumpSearchId();
@@ -1211,7 +1166,7 @@ function bindSectionObserver() {
   const section = document.querySelector('#searchSection');
   if (!section) return;
   new MutationObserver(() => {
-    // 基线 resetSearchResults 会隐藏 #searchSection：此时搜索页也应整体收起
+
     if (section.classList.contains('is-hidden') && hub.visible) {
       cancelRunning();
       bumpSearchId();
@@ -1230,8 +1185,6 @@ function bindIslandObserver() {
   }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 }
 
-/* ============ 装配 ============ */
-
 function adaptApi(api) {
   if (!api) return null;
   const hubApi = window.cineflowSearchHub;
@@ -1243,10 +1196,6 @@ function adaptApi(api) {
   };
 }
 
-/**
- * 只读自省：给测试与诊断用的一个窗口，不参与任何渲染逻辑。
- * 用于断言「展示口径」到底把片源归并成了什么，避免测试去解析 DOM 文本。
- */
 export function inspectSearchWorkbench() {
   return {
     query: hub.query,
@@ -1268,7 +1217,7 @@ export function initSearchWorkbench(injected = {}) {
     document.documentElement.dataset.cf25Workbench = '1';
 
     hub.unsubscribe = window.cineflowSearchHub?.onProgress?.(applyProgress) || null;
-    // 预热片源清单：让第一次 Enter 也能 0ms 铺出逐源等待态
+
     try {
       const statusApi = window.cineflowSearchHub;
       if (statusApi && typeof statusApi.status === 'function') {
@@ -1278,12 +1227,12 @@ export function initSearchWorkbench(injected = {}) {
           }
         }).catch(() => {});
       }
-    } catch { /* 预热失败不影响主流程 */ }
+    } catch {  }
     bindInput();
     bindEscape();
     bindSectionObserver();
     bindIslandObserver();
-    // 预先挂详情面板观察器：详情一收就撤掉层级抬升，不依赖「相关」先被点过
+
     watchDetailClose();
     return true;
   } catch (error) {

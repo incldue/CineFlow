@@ -1,7 +1,8 @@
-
 const RAIL_SCROLL_CLASS = 'cf30-scrolling';
 const SHARP_CLASS = 'cf30-sharp';
+
 const RAIL_IDLE_MS = 320;
+
 function findContainingBlock(el) {
   let node = el?.parentElement || null;
   while (node && node !== document.documentElement) {
@@ -13,7 +14,7 @@ function findContainingBlock(el) {
       if (style.backdropFilter && style.backdropFilter !== 'none') return node;
       if (style.willChange && /transform|perspective|filter/.test(style.willChange)) return node;
     } catch (error) {
-      /* 忽略 */
+
     }
     node = node.parentElement;
   }
@@ -26,6 +27,7 @@ function syncTitlebarHeight() {
     window.setTimeout(syncTitlebarHeight, 700);
     return;
   }
+
   let lastRaw = '';
   let lastH = '';
   let pending = 0;
@@ -35,15 +37,18 @@ function syncTitlebarHeight() {
     try {
       const barRect = bar.getBoundingClientRect();
       if (!Number.isFinite(barRect.bottom) || barRect.bottom <= 0) return;
+
       const raw = barRect.height.toFixed(2) + 'px';
       if (raw !== lastRaw) {
         lastRaw = raw;
         document.documentElement.style.setProperty('--cf-titlebar-raw', raw);
       }
+
       const hub = document.getElementById('cf25SearchHub');
       const anchor = hub || document.getElementById('app');
       const block = findContainingBlock(anchor);
       const blockRect = block.getBoundingClientRect();
+
       const offset = barRect.bottom - blockRect.top;
       if (!Number.isFinite(offset) || offset < -12 || offset > 400) return;
       const h = offset.toFixed(2) + 'px';
@@ -52,11 +57,10 @@ function syncTitlebarHeight() {
         document.documentElement.style.setProperty('--cf-titlebar-h', h);
       }
     } catch (error) {
-      /* 忽略 */
+
     }
   };
 
-  // 一帧内多次触发只排一次；没有 rAF 就退回微任务批处理
   const apply = () => {
     if (pending) return;
     try {
@@ -73,21 +77,19 @@ function syncTitlebarHeight() {
     observer.observe(bar);
     if (bar.firstElementChild) observer.observe(bar.firstElementChild);
   } catch (error) {
-    /* 没有 ResizeObserver 就退化到 resize 事件 */
+
   }
 
-  // 包含块会在过渡期变化（splash 退场、页面切换），这些时刻都要重算
   try {
     new MutationObserver(apply).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   } catch (error) {
-    /* 忽略 */
+
   }
 
   window.addEventListener('resize', apply, { passive: true });
   document.addEventListener('transitionend', apply, { passive: true, capture: true });
   document.addEventListener('animationend', apply, { passive: true, capture: true });
 
-  // 启动阶段异步内容多，短周期补算几次，之后交给上面的事件
   let ticks = 0;
   const timer = window.setInterval(() => {
     ticks += 1;
@@ -96,16 +98,13 @@ function syncTitlebarHeight() {
   }, 400);
 }
 
-/* ------------------------------------------------------------------
- * 2 · 海报 blur-up 收尾：filter 置 none
- * ------------------------------------------------------------------ */
 function markSharp(img) {
   if (!(img instanceof HTMLImageElement)) return;
   if (img.classList.contains(SHARP_CLASS)) return;
   try {
     img.classList.add(SHARP_CLASS);
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -120,7 +119,7 @@ function armPosterSharp() {
     root.querySelectorAll('.poster-frame img').forEach((img) => {
       if (img.classList.contains(SHARP_CLASS)) return;
       if (img.complete && img.naturalWidth > 0) {
-        // 已加载完的：留出 blur-up 收敛时间再摘 filter
+
         window.setTimeout(() => markSharp(img), 620);
       }
     });
@@ -165,26 +164,23 @@ function armPosterSharp() {
       attributeFilter: ['class']
     });
   } catch (error) {
-    /* 忽略 */
+
   }
 
   scan();
-  // 卡片是异步渲染的，初始化时可能一张都没有：短周期补扫几次，彻底兜住
+
   let tries = 0;
   const timer = window.setInterval(() => {
     tries += 1;
     try {
       scan();
     } catch (error) {
-      /* 忽略 */
+
     }
     if (tries >= 12) window.clearInterval(timer);
   }, 900);
 }
 
-/* ------------------------------------------------------------------
- * 3 · 滚动期减负
- * ------------------------------------------------------------------ */
 function armRailScrolling() {
   const root = document.getElementById('app');
   if (!root) {
@@ -211,11 +207,11 @@ function armRailScrolling() {
             rail.classList.remove(RAIL_SCROLL_CLASS);
             if (wrap && wrap.classList.contains('cf9-rail-wrap')) wrap.classList.remove(RAIL_SCROLL_CLASS);
           } catch (error) {
-            /* 忽略 */
+
           }
         }, RAIL_IDLE_MS);
       } catch (error) {
-        /* 忽略 */
+
       }
     }, { passive: true });
   };
@@ -227,7 +223,7 @@ function armRailScrolling() {
   try {
     new MutationObserver(scan).observe(root, { childList: true, subtree: true });
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -242,25 +238,21 @@ function armPageScrolling() {
     try {
       if (typeof window.__cf33Engage === 'function') window.__cf33Engage();
     } catch (error) {
-      /* 忽略 */
+
     }
   };
 
-  // scroll 不冒泡，但捕获阶段会沿祖先链派发 —— 一次监听覆盖所有滚动容器
   document.addEventListener('scroll', (event) => {
     const target = event.target;
     if (target === document || target === shell || (target instanceof Element && target.contains(shell))) {
       engage();
       return;
     }
-    // 片库/详情面板这类内部滚动容器：只有纵向滚动才需要给网格减负
+
     if (target instanceof Element && target.scrollHeight > target.clientHeight + 4) engage();
   }, { passive: true, capture: true });
 }
 
-/* ------------------------------------------------------------------
- * 装配
- * ------------------------------------------------------------------ */
 export function initMotionPerf() {
   const results = {};
   const run = (name, fn) => {
@@ -272,7 +264,7 @@ export function initMotionPerf() {
       try {
         console.warn('[CineFlow] 流畅度补丁装配失败，已跳过：' + name, error);
       } catch (inner) {
-        /* 忽略 */
+
       }
     }
   };

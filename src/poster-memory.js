@@ -1,4 +1,3 @@
-
 const CACHE_ENTRIES = 600;
 const CACHE_CHARS = 40 * 1024 * 1024;
 const PREFETCH_CONCURRENCY = 6;
@@ -19,7 +18,6 @@ export function initPosterMemory() {
   window.__cf35 = window.__cf35 || {};
   window.__cf35.poster = diag;
 
-  /** identity -> dataUrl。Map 插入顺序即 LRU。 */
   const memory = new Map();
   let totalChars = 0;
 
@@ -27,7 +25,6 @@ export function initPosterMemory() {
   let running = 0;
   const queue = [];
 
-  // 先读盘，让第一次绘制前 memory 就有内容
   loadFromDisk();
 
   function identityOf(card) {
@@ -61,12 +58,13 @@ export function initPosterMemory() {
       diag.entries = memory.size;
       diag.chars = totalChars;
     } catch (error) {
-      /* 忽略：读失败就当没有落盘 */
+
     }
   }
 
   let saveTimer = 0;
   function saveToDisk() {
+
     if (saveTimer) window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
       saveTimer = 0;
@@ -74,7 +72,7 @@ export function initPosterMemory() {
         const out = {};
         let budget = 0;
         let count = 0;
-        // 从最近使用的一端往回取（Map 尾部最新）
+
         const entries = Array.from(memory.entries());
         for (let i = entries.length - 1; i >= 0 && count < DISK_ENTRIES; i -= 1) {
           const [key, value] = entries[i];
@@ -122,16 +120,14 @@ export function initPosterMemory() {
     return value;
   }
 
-  /**
-   * 把图直出到卡片上。
-   * 只在 .poster-frame 里还没有 img 时动手，绝不覆盖基线已经放好的图。
-   */
   function paint(card, dataUrl) {
     const frame = card.querySelector(FRAME_SELECTOR);
     if (!frame) return false;
     const existing = frame.querySelector('img');
     if (existing) {
+
       try {
+
         if (
           existing.complete &&
           existing.naturalWidth > 0 &&
@@ -142,7 +138,7 @@ export function initPosterMemory() {
           diag.rescued += 1;
         }
       } catch (error) {
-        /* 忽略 */
+
       }
       return false;
     }
@@ -154,10 +150,7 @@ export function initPosterMemory() {
       img.decoding = 'async';
       img.loading = 'eager';
       img.dataset.cf35Mem = '1';
-      // 只补 is-loaded + cf36-instant。
-      // 千万不能补 cf8-poster-loaded —— 它挂着 cf8Fade 320ms，动画起点是 from{opacity:0}，
-      // 而且一旦 body 上有 cf33-scroll 就 animation-play-state: paused，fill:both 会
-      // 把海报死死停在 0。cf36-instant 直接写死终态并掐掉动画，插入那一刻就可见。
+
       img.className = 'is-loaded cf36-instant';
       img.src = dataUrl;
     } catch (error) {
@@ -191,8 +184,7 @@ export function initPosterMemory() {
 
   function prefetch(card, key) {
     if (inflight.has(key)) return;
-    // 基线 bridge() 用的就是 window.cineflowDouban（preload 第 78 行那块对象里才有
-    // poster / image）；window.cineflow 上没有这两个方法。
+
     const bridge = window.cineflowDouban;
     if (!bridge || typeof bridge.poster !== 'function') return;
 
@@ -211,9 +203,7 @@ export function initPosterMemory() {
     inflight.set(key, true);
     queue.push(async () => {
       try {
-        // 与 douban-fallback 完全同一支链路：poster() 只给豆瓣图片 URL，
-        // 真正的字节靠 douban:image 转 base64（基线 doubanImageDataUrl 也是这两步）。
-        // 有 cover 就跳过 poster()，直接取图 —— 基线在有 cover 时同样不搜。
+
         let url = DOUBAN_IMAGE_RE.test(String(payload.cover || '')) ? payload.cover : '';
         if (!url) {
           const found = await bridge.poster({ title: payload.title, year: payload.year, type: payload.mediaType });
@@ -257,7 +247,7 @@ export function initPosterMemory() {
       paint(card, known);
       return;
     }
-    // 只有豆瓣兜底卡片值得主动取图；TMDB 卡片只回放，不造图
+
     if (card.hasAttribute('data-cf8-douban') || card.querySelector('.cf8-ph')) prefetch(card, key);
   }
 
@@ -267,7 +257,6 @@ export function initPosterMemory() {
     root.querySelectorAll?.(CARD_SELECTOR).forEach(consider);
   }
 
-  /** 任何成功解码的 poster data: URL 都记下来，作为下一代的直出素材 */
   document.addEventListener(
     'load',
     (event) => {
@@ -281,7 +270,7 @@ export function initPosterMemory() {
       try {
         img.classList.add('is-loaded');
       } catch (error) {
-        /* 忽略 */
+
       }
       remember(identityOf(card), src);
     },
@@ -305,7 +294,7 @@ export function initPosterMemory() {
     window.addEventListener('pagehide', saveToDisk, { once: true });
     window.addEventListener('beforeunload', saveToDisk, { once: true });
   } catch (error) {
-    /* 忽略 */
+
   }
 
   document.querySelectorAll(CARD_SELECTOR).forEach(consider);

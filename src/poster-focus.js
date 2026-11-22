@@ -1,4 +1,3 @@
-
 const CARD_SELECTOR = '.movie-card';
 const LIT_CLASS = 'is-focus-lit';
 const READY_FLAG = 'cf29PosterFocus';
@@ -17,6 +16,7 @@ function prefersReducedMotion() {
     return false;
   }
 }
+
 function motionBlocked() {
   try {
     const body = document.body;
@@ -40,7 +40,7 @@ function clearCard(card) {
     card.style.removeProperty('--cf-fpy');
     card.style.removeProperty('--cf-fz');
   } catch {
-    /* 节点已被替换等情况，忽略 */
+
   }
 }
 
@@ -70,7 +70,7 @@ let tick = 0;
 
 function apply() {
   frame = 0;
-  if (tick) { try { window.clearTimeout(tick); } catch { /* 忽略 */ } tick = 0; }
+  if (tick) { try { window.clearTimeout(tick); } catch {  } tick = 0; }
   const card = currentCard;
   const shot = snapshot;
   if (!card || !shot) return;
@@ -88,11 +88,10 @@ function apply() {
     if (fpy !== shot._fpy) { shot._fpy = fpy; card.style.setProperty('--cf-fpy', fpy); }
     if (fz !== shot._fz) { shot._fz = fz; card.style.setProperty('--cf-fz', fz); }
   } catch {
-    /* 装饰层失败不影响任何交互 */
+
   }
 }
 
-/* 合并到一帧一次；窗口失焦 / 后台时 rAF 会被挂起，用 60ms 定时器兜底抢跑。 */
 function scheduleApply() {
   if (frame || tick) return;
   try {
@@ -102,7 +101,7 @@ function scheduleApply() {
   }
   tick = window.setTimeout(() => {
     tick = 0;
-    if (frame) { try { window.cancelAnimationFrame(frame); } catch { /* 忽略 */ } frame = 0; }
+    if (frame) { try { window.cancelAnimationFrame(frame); } catch {  } frame = 0; }
     apply();
   }, 60);
 }
@@ -121,18 +120,16 @@ function onPointerMove(event) {
     const rect = rectOf(card);
     if (!rect.width || !rect.height) return;
 
-    // 归一化到 -1 ~ 1（0 为中心）
     const nx = Math.min(1, Math.max(-1, ((event.clientX - rect.left) / rect.width) * 2 - 1));
     const ny = Math.min(1, Math.max(-1, ((event.clientY - rect.top) / rect.height) * 2 - 1));
 
-    // 越靠近中心 → 越"正对"，景深读数越高；边缘则压低，避免整排乱晃
     const fz = MAX_DEPTH * (1 - Math.min(1, Math.sqrt(nx * nx + ny * ny) / 1.414));
 
     currentCard = card;
     snapshot = {
       fx: nx,
       fy: ny,
-      // 海报本体逆向位移：指针往右，海报往左退一点，产生"前景浮起"的层次
+
       fpx: -nx * MAX_PARALLAX_PX,
       fpy: -ny * MAX_PARALLAX_PX,
       fz
@@ -140,7 +137,7 @@ function onPointerMove(event) {
 
     scheduleApply();
   } catch {
-    /* 极致降级：忽略本次移动 */
+
   }
 }
 
@@ -149,13 +146,9 @@ function onPointerOut(event) {
     const card = currentCard;
     if (!card) return;
 
-    // relatedTarget 落在卡内 —— 只是卡内元素互换，不算离开
     const related = event.relatedTarget;
     if (related instanceof Node && card.contains(related)) return;
 
-    // 海报图片加载完成时会替换掉占位节点，浏览器随即补发一次 pointerout，
-    // 而这次事件的 relatedTarget 是 null —— 若直接 reset，视差刚写好就被擦掉。
-    // 用坐标复核一次：指针其实还压在这张卡上，就不要收。
     const x = event.clientX;
     const y = event.clientY;
     if (typeof x === 'number' && typeof y === 'number' && (x || y)) {
@@ -165,7 +158,7 @@ function onPointerOut(event) {
 
     reset();
   } catch {
-    /* 忽略 */
+
   }
 }
 
@@ -173,7 +166,7 @@ function bind() {
   if (bound) return true;
   if (document.documentElement.dataset[READY_FLAG] === '1') return true;
   try {
-    // 矩形缓存失效时机：滚动、尺寸变化、重新进入一张卡（卡片可能刚被插入/替换）
+
     document.addEventListener('pointerover', (event) => {
       const t = event.target;
       if (t instanceof Element && t.closest(CARD_SELECTOR)) invalidateRects();
@@ -188,14 +181,11 @@ function bind() {
     bound = true;
     return true;
   } catch (error) {
-    try { console.warn('[CineFlow] 海报焦点动效装配失败，已跳过', error); } catch { /* 忽略 */ }
+    try { console.warn('[CineFlow] 海报焦点动效装配失败，已跳过', error); } catch {  }
     return false;
   }
 }
 
-/**
- * 装配入口。由 src/incremental-pages.js 一行调用；重复调用安全。
- */
 export function initPosterFocus() {
   try {
     if (!bind()) return false;

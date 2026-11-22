@@ -1,5 +1,3 @@
-
-
 const TICK_MS = 700;
 const CLIPBOARD_TICK_MS = 800;
 const BUBBLE_WIDTH = 292;
@@ -18,6 +16,7 @@ const DRAFT_GROUPS = [
     ]
   },
   {
+
     title: '联系方式',
     copy: false,
     rows: [
@@ -35,8 +34,7 @@ const DRAFT_GROUPS = [
   }
 ];
 const DRAFT_STORE_KEY = 'cineflow:tmdb-apply-draft:v1';
-// 草稿存在本机 localStorage 里，旧值如果还是上一版默认值就换成新的；
-// 用户真自己改过的（不等于旧默认值）一律保留。
+
 const DRAFT_DEFAULT_MIGRATION = {
   app_name: { from: 'CineFlow', to: 'AAAA' },
   app_url: { from: 'https://github.com/incldue/CineFlow', to: 'http://127.0.0.1' },
@@ -61,7 +59,7 @@ function writeDraftStore(values) {
   try {
     window.localStorage.setItem(DRAFT_STORE_KEY, JSON.stringify(values));
   } catch (error) {
-    /* 存不下就只在本会话里用，不影响任何链路 */
+
   }
 }
 
@@ -75,7 +73,6 @@ const SKELETON = `
   </div>
 `;
 
-// 气泡内部复用 cf6 已有的按钮/进度轨/转圈样式，只有排版是 cf12 新增的
 const BUBBLE = `
   <div class="cf12-head">
     <span class="cf12-title">TMDB 凭证</span>
@@ -142,6 +139,7 @@ function mountTmdbWizard({ api, state } = {}) {
   let mode = 'auth';
   let bubbleOpen = false;
   let chaining = false;
+
   function placeBubble() {
     const rootRect = appRoot.getBoundingClientRect();
     const anchor = btnEl.getBoundingClientRect();
@@ -230,7 +228,6 @@ function mountTmdbWizard({ api, state } = {}) {
     if (bubbleOpen) placeBubble();
   }
 
-  // 剪贴板写入：优先异步 Clipboard API，拿不到就退回一次性 textarea + execCommand
   async function copyText(value) {
     if (!value) return false;
     try {
@@ -277,7 +274,6 @@ function mountTmdbWizard({ api, state } = {}) {
     }, 1400);
   });
 
-  // 五段进度轨：段数按步骤名补齐，每段把名字挂在 title/aria 上，界面上不占任何文字位
   function renderRail(names, current) {
     if (railEl.childElementCount !== names.length) {
       railEl.innerHTML = names.map((name) => `<i title="${name}"></i>`).join('');
@@ -322,7 +318,6 @@ function mountTmdbWizard({ api, state } = {}) {
     return configured;
   }
 
-  // 徽标以主进程为准：向导自己存的、基线"保存并刷新"存的，这里都能看到最新值
   async function refreshCredential() {
     if (busy || !api.getCredentialState) return;
     const next = await api.getCredentialState().catch(() => null);
@@ -331,7 +326,6 @@ function mountTmdbWizard({ api, state } = {}) {
     syncCredential();
   }
 
-  // 凭证落地后走基线现成的"保存并刷新"：它自己会 loadInitial 把首页/推荐全部重拉一遍
   function finishAndRefresh() {
     stop();
     hideRun();
@@ -344,7 +338,7 @@ function mountTmdbWizard({ api, state } = {}) {
   }
 
   async function readClipboardOnce(announce) {
-    // 优先走主进程"先校验再落盘"那一版：格式对上不算数，TMDB 认了才写进 settings.json
+
     const grab = api.grabTmdbCredential || api.takeTmdbCredentialFromClipboard;
     const result = grab ? await grab().catch(() => null) : null;
     if (!result?.found) return false;
@@ -357,7 +351,7 @@ function mountTmdbWizard({ api, state } = {}) {
     if (state) state.credential = result.state;
     bubble.classList.remove('is-error');
     card.classList.remove('is-error');
-    // API Key 落盘后直接接续 v4 授权流：请求 request token → 浏览器点一次批准 → 自动换 Read Access Token
+
     if (result.type === 'apiKey' && (api.startTmdbAuth || api.getTmdbAuthStatus)) {
       announce?.('API Key 已保存，正在换取 Read Access Token');
       chaining = true;
@@ -423,7 +417,7 @@ function mountTmdbWizard({ api, state } = {}) {
 
   async function begin(force = false) {
     if (busy && !force) return;
-    // 从引导态接续过来：先把剪贴板轮询停掉，别让同一段粘贴被反复处理
+
     if (force && timer) { window.clearInterval(timer); timer = 0; }
     busy = true;
     mode = 'auth';
@@ -433,7 +427,7 @@ function mountTmdbWizard({ api, state } = {}) {
     const result = await api.startTmdbAuth().catch((error) => ({ ok: false, code: 'IPC_FAILED', error: String(error?.message || error) }));
     chaining = false;
     if (result?.code === 'NEED_API_KEY') { startGuide(); return; }
-    // 本机已经是 Read Access Token：没什么可换的，收起进度条把状态显示对就行
+
     if (result?.code === 'HAS_READ_TOKEN') { hideRun(); await refreshCredential(); return; }
     if (!result?.ok) {
       stop();
@@ -481,7 +475,7 @@ function mountTmdbWizard({ api, state } = {}) {
       msgEl.textContent = message;
     }).then((found) => {
       if (found) return;
-      // 认不出来就退回待选状态，只把错误留在文案里；否则气泡会卡在"进行中"却没有任何东西在跑
+
       busy = false;
       msgEl.textContent = '剪贴板里没有找到 TMDB 密钥';
       bubble.classList.add('is-error');
@@ -508,7 +502,6 @@ function mountTmdbWizard({ api, state } = {}) {
     closeBubble();
   });
 
-  // 点气泡外任意处收起；进行中不收起，避免误点把授权流打断
   document.addEventListener('pointerdown', (event) => {
     if (!bubbleOpen || busy) return;
     const target = event.target instanceof Element ? event.target : null;
@@ -519,7 +512,6 @@ function mountTmdbWizard({ api, state } = {}) {
   scroll.addEventListener('scroll', () => { if (bubbleOpen) placeBubble(); }, { passive: true });
   window.addEventListener('resize', () => { if (bubbleOpen) placeBubble(); });
 
-  // 设置面板关掉就把轮询停掉：向导只在面板开着、且用户主动点过的时候才读剪贴板
   const modal = document.querySelector('#settingsModal');
   if (modal) {
     new MutationObserver(() => {
@@ -530,7 +522,6 @@ function mountTmdbWizard({ api, state } = {}) {
     }).observe(modal, { attributes: true, attributeFilter: ['class'] });
   }
 
-  // 基线的 updateSettingsState 会重写 state.credential，这里用轮询同步徽标，不去碰它任何函数
   window.setInterval(() => {
     if (modal && modal.classList.contains('is-hidden')) return;
     refreshCredential();

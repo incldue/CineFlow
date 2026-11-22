@@ -1,4 +1,3 @@
-
 const PLAYER_SELECTOR = '#playerModal';
 const WATCH_ATTRS = ['class', 'style'];
 
@@ -18,7 +17,7 @@ export function initPlayerAnchor(deps = {}) {
     const resetAppScroll = () => {
       try {
         if (app.scrollLeft !== 0) app.scrollLeft = 0;
-      } catch { /* noop */ }
+      } catch {  }
     };
 
     const isPlayerOpen = () =>
@@ -30,9 +29,9 @@ export function initPlayerAnchor(deps = {}) {
         if (open) resetAppScroll();
         if (open === locked) return;
         locked = open;
-        // 播放期间彻底断掉 #app 的滚动能力，关闭后交还给基线样式
+
         app.style.overflow = open ? 'clip' : '';
-      } catch { /* noop */ }
+      } catch {  }
     };
 
     sync();
@@ -41,7 +40,7 @@ export function initPlayerAnchor(deps = {}) {
       const observer = new MutationObserver(() => sync());
       observer.observe(modal, { attributes: true, attributeFilter: WATCH_ATTRS });
       observer.observe(doc.body, { attributes: true, attributeFilter: ['class'] });
-    } catch { /* 观察器不可用时仅保留一次性同步 */ }
+    } catch {  }
 
     const guard = () => {
       if (!isPlayerOpen()) return;
@@ -53,13 +52,13 @@ export function initPlayerAnchor(deps = {}) {
     try {
       const shell = doc.querySelector('.player-shell');
       shell?.addEventListener('scroll', guard, { passive: true });
-    } catch { /* noop */ }
+    } catch {  }
 
     return true;
   } catch (error) {
     try {
       console.warn('[CineFlow] 播放器定位守护装配失败，已跳过', error);
-    } catch { /* noop */ }
+    } catch {  }
     return false;
   }
 }

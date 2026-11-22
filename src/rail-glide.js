@@ -1,17 +1,20 @@
-
 const RAIL_SELECTOR = '.content-section .movie-rail';
 const GLIDE_CLASS = 'cf37-glide';
 const GLIDING_CLASS = 'cf37-gliding';
 const SCAN_LIMIT = 8;
+
 const EDGE_RATIO = 0.16;
 const EDGE_MIN = 56;
 const EDGE_MAX = 170;
+
 const EDGE_SLACK = 6;
+
 const MIN_SPEED = 240;
 const MAX_SPEED = 1750;
 const ACCEL_MS = 130;
 const SNAP_MS = 240;
 const SNAP_MS_REDUCED = 1;
+
 const states = new Set();
 let raf = 0;
 let lastTs = 0;
@@ -49,6 +52,7 @@ function blocked() {
 function clamp(value, min, max) {
   return value < min ? min : value > max ? max : value;
 }
+
 function pitchOf(rail) {
   try {
     const card = rail.querySelector('.movie-card');
@@ -86,12 +90,12 @@ function stepSnap(state, ts) {
     rail.scrollLeft = value;
     diag.writes += 1;
   } catch (error) {
-    /* 忽略 */
+
   }
   if (progress >= 1) {
     state.snapping = false;
     state.snapStart = 0;
-    try { rail.classList.remove(GLIDING_CLASS); } catch (error) { /* 忽略 */ }
+    try { rail.classList.remove(GLIDING_CLASS); } catch (error) {  }
     return false;
   }
   return true;
@@ -104,7 +108,6 @@ function stepGlide(state, dt) {
   const max = Math.max(0, rail.scrollWidth - rail.clientWidth);
   const desired = state.desired;
 
-  // 速度爬升/衰减：直接赋速度会"蹭"地一下起步，非常生硬
   const blend = Math.min(1, (dt * 1000) / ACCEL_MS);
   state.velocity += (desired - state.velocity) * blend;
 
@@ -161,7 +164,7 @@ function startSnap(state, force = true) {
   state.desired = 0;
   state.velocity = 0;
   if (state.snapping && !force) return;
-  if (state.wheelUntil && now() < state.wheelUntil) return;    // 滚轮刚动过，交给原生吸附
+  if (state.wheelUntil && now() < state.wheelUntil) return;
 
   const max = Math.max(0, rail.scrollWidth - rail.clientWidth);
   const pitch = pitchOf(rail);
@@ -170,7 +173,7 @@ function startSnap(state, force = true) {
   const current = rail.scrollLeft;
   const target = clamp(Math.round(current / pitch) * pitch, 0, max);
   if (Math.abs(target - current) < 0.8) {
-    try { rail.classList.remove(GLIDING_CLASS); } catch (error) { /* 忽略 */ }
+    try { rail.classList.remove(GLIDING_CLASS); } catch (error) {  }
     return;
   }
 
@@ -179,7 +182,7 @@ function startSnap(state, force = true) {
   state.snapStart = 0;
   state.snapping = true;
   diag.snaps += 1;
-  try { rail.classList.add(GLIDING_CLASS); } catch (error) { /* 忽略 */ }
+  try { rail.classList.add(GLIDING_CLASS); } catch (error) {  }
   schedule();
 }
 
@@ -217,7 +220,7 @@ function evaluate(state, event) {
   if (state.wheelUntil && now() < state.wheelUntil) { stopGlide(state, false); return; }
 
   const max = Math.max(0, rail.scrollWidth - rail.clientWidth);
-  if (max <= 1) return;                                  // 不溢出，没什么可滑
+  if (max <= 1) return;
 
   const edge = clamp(rect.width * EDGE_RATIO, EDGE_MIN, EDGE_MAX);
   const fromLeft = x - rect.left;
@@ -235,11 +238,9 @@ function evaluate(state, event) {
 
   if (!dir || depth <= 0) { stopGlide(state, true); return; }
 
-  // 已经到头的方向不再滑，避免"贴着边空转"
   if (dir < 0 && rail.scrollLeft <= 0.5) { stopGlide(state, true); return; }
   if (dir > 0 && rail.scrollLeft >= max - 0.5) { stopGlide(state, true); return; }
 
-  // 深度²：手停在边缘最外侧时快，往中间挪一点就明显变慢 —— 这是"吸附手感"的来源
   const eased = depth * depth;
   state.desired = dir * (MIN_SPEED + eased * (MAX_SPEED - MIN_SPEED));
 
@@ -250,7 +251,7 @@ function evaluate(state, event) {
   if (!state.gliding) {
     state.gliding = true;
     diag.glides += 1;
-    try { rail.classList.add(GLIDING_CLASS); } catch (error) { /* 忽略 */ }
+    try { rail.classList.add(GLIDING_CLASS); } catch (error) {  }
   }
   schedule();
 }
@@ -260,7 +261,7 @@ function onPointerMove(event) {
     if (event.pointerType === 'touch') return;
     for (const state of Array.from(states)) evaluate(state, event);
   } catch (error) {
-    /* 装饰层失败不影响交互 */
+
   }
 }
 
@@ -271,7 +272,7 @@ function onPointerLeave() {
       stopGlide(state, true);
     }
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -297,26 +298,23 @@ function arm(rail) {
   states.add(state);
   diag.rails += 1;
 
-  try { rail.classList.add(GLIDE_CLASS); } catch (error) { /* 忽略 */ }
+  try { rail.classList.add(GLIDE_CLASS); } catch (error) {  }
 
-  // 滚轮：让位给已有的横向滚动，并且短时间内不要吸附（原生 proximity 自己在做）
   rail.addEventListener('wheel', () => {
     state.wheelUntil = now() + 700;
     state.gliding = false;
     state.desired = 0;
-    try { rail.classList.remove(GLIDING_CLASS); } catch (error) { /* 忽略 */ }
+    try { rail.classList.remove(GLIDING_CLASS); } catch (error) {  }
   }, { passive: true });
 
-  // 按下（拖拽 / 点击海报）：立刻停，松手 600ms 内不接管
   rail.addEventListener('pointerdown', () => {
     state.dragUntil = now() + 600;
     state.gliding = false;
     state.desired = 0;
     state.velocity = 0;
-    try { rail.classList.remove(GLIDING_CLASS); } catch (error) { /* 忽略 */ }
+    try { rail.classList.remove(GLIDING_CLASS); } catch (error) {  }
   }, { passive: true });
 
-  // 键盘聚焦到卡片时也吸附一下，方向键浏览不至于停在半张卡上
   rail.addEventListener('focusin', () => startSnap(state, true), { passive: true });
 }
 
@@ -325,12 +323,12 @@ function scan() {
     const rails = Array.from(document.querySelectorAll(RAIL_SELECTOR)).slice(0, SCAN_LIMIT);
     for (const rail of rails) {
       if (rail.classList.contains('is-expanded')) continue;
-      if (rail.closest('.cf3-page')) continue;          // 片库是网格，不参与
+      if (rail.closest('.cf3-page')) continue;
       if (rail.scrollWidth - rail.clientWidth <= 1 && !rail.__cf37State) continue;
       arm(rail);
     }
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -367,12 +365,11 @@ function bind() {
     bound = true;
     return true;
   } catch (error) {
-    try { console.warn('[CineFlow] 栏目指针感应滑动装配失败，已跳过', error); } catch (e) { /* 忽略 */ }
+    try { console.warn('[CineFlow] 栏目指针感应滑动装配失败，已跳过', error); } catch (e) {  }
     return false;
   }
 }
 
-/** 装配入口，由 src/incremental-pages.js 一行调用；重复调用安全。 */
 export function initRailGlide() {
   try {
     return bind();

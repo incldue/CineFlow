@@ -1,16 +1,12 @@
-// 详情页 Quality 弹层：Server（18 台内置服务器）+ Quality（该服务器真实档位）。
-// 详情页一打开就预热并逐台推送结果，弹层首帧只读本地缓存，不等网络。
-// 起播走基线出口 window.__cineflowOpenResourcePlayer，地址先换成主进程本地代理。
-
 import './movy-quality.css';
 
 const QUALITY_STORE_KEY = 'cineflow:movy-quality:v1';
 const QUALITY_CACHE_KEY = 'cineflow:movy-qcache:v1';
 const PROVIDERS_CACHE_KEY = 'cineflow:movy-providers:v1';
 const TIERS_KEY = 'cineflow:movy-tiers:v1';
-const QUALITY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;   // 片源地址 6 小时内基本有效，跨会话直接命中
+const QUALITY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FILM_ID_KEY = 'cineflow:movy-filmid:v1';
-const QTIERS_KEY = 'cineflow:movy-qtiers:v1';        // 每部片每台服务器「有哪些档位」的长记忆
+const QTIERS_KEY = 'cineflow:movy-qtiers:v1';
 const QTIERS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PROVIDERS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TIERS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -33,7 +29,7 @@ function writeJson(key, value, limit) {
       const trimmed = {};
       for (const key2 of keys.slice(0, limit)) trimmed[key2] = value[key2];
       window.localStorage.setItem(key, JSON.stringify(trimmed));
-    } catch { /* 隐私模式 */ }
+    } catch {  }
   }
   return value;
 }
@@ -47,7 +43,7 @@ export function initMovyQualityMenu(deps = {}) {
   const doc = deps.document || (typeof document !== 'undefined' ? document : null);
   if (!doc) return () => {};
   const bridge = () => (typeof window !== 'undefined' ? window.cineflowMovy : null);
-  // 常驻诊断：注入与渲染的每次动作都记一笔，出问题时（按钮不出现 / 面板空白）可直接查看
+
   const diag = (typeof window !== 'undefined' ? window : {}).__cfMq = (typeof window !== 'undefined' && window.__cfMq) || {
     inits: 0, injects: 0, removed: 0, errors: [], mutations: 0, panelOpens: 0, bridgeOk: false, hosts: [],
   };
@@ -57,10 +53,8 @@ export function initMovyQualityMenu(deps = {}) {
   const PLAYCTX_KEY = 'cineflow:movy-playctx:v1';
   let activeSubtitles = [];
 
-  // 当前影片来源：卡片点击记录（捕获阶段）→ 详情页标题交叉校验 → 最近 TMDB 请求兜底。
-
   let current = null;
-  let clickRecord = null;   // 最近一次点击的卡片 { id, mediaType, title, at }
+  let clickRecord = null;
   let providers = null;
   let activeProvider = '';
   let activeSources = [];
@@ -75,14 +69,13 @@ export function initMovyQualityMenu(deps = {}) {
   let prefetchTimer = 0;
   let coolingTimer = 0;
   const lastErrorByProvider = new Map();
-  const warmSources = new Map();   // provider -> 已拿到的档位（用于自动兜底）
+  const warmSources = new Map();
   let autoFallbackDone = false;
   let filmSig = '';
   let justSwitched = false;
   let detailHookOff = null;
   let idPending = null;
 
-  // 有片源的服务器里，挑一台不是当前、也没失败过的
   function fallbackProvider() {
     if (!warmSources.size) return '';
     for (const [name, sources] of warmSources) {
@@ -94,7 +87,6 @@ export function initMovyQualityMenu(deps = {}) {
     return '';
   }
 
-  // 上游对这些服务器没有该片源时回 500/404：说人话，别吓用户
   function humanError(raw) {
     const text = String(raw || '');
     if (/HTTP 500|HTTP 404/.test(text)) return '该服务器无此片源';
@@ -117,10 +109,8 @@ export function initMovyQualityMenu(deps = {}) {
         title: String((card.querySelector('.movie-card-title') || card.querySelector('h3') || {}).textContent || '').trim().slice(0, 120),
       };
     }, true);
-  } catch { /* ignore */ }
+  } catch {  }
 
-  // 最后一道兜底：详情页会去打 TMDB /movie/{id} 或 /tv/{id}，从最近的请求里反查 id。
-  // 只在「没点到卡片」且详情页确实渲染出标题时才用，避免认错片。
   function idFromRecentRequest() {
     try {
       const entries = performance.getEntriesByType('resource') || [];
@@ -130,15 +120,14 @@ export function initMovyQualityMenu(deps = {}) {
         const entry = entries[i];
         const url = String(entry && entry.name || '');
         if (!/themoviedb|tmdb/i.test(url)) continue;
-        if (now && entry.startTime && now - entry.startTime > 25000) continue;   // 只认详情刚打开那一下的请求
+        if (now && entry.startTime && now - entry.startTime > 25000) continue;
         const hit = url.match(/\/(movie|tv)\/(\d{2,8})(?:[/?]|$)/);
         if (hit) return { id: Number(hit[2]), mediaType: hit[1] === 'tv' ? 'tv' : 'movie' };
       }
-    } catch { /* ignore */ }
+    } catch {  }
     return null;
   }
 
-  // 详情可能来自卡片/历史/搜索：包住渲染层入口拿权威 id
   function hookOpenDetails() {
     try {
       const original = window.__cineflowOpenDetails;
@@ -149,13 +138,13 @@ export function initMovyQualityMenu(deps = {}) {
           const title = String((movie && (movie.title || movie.name)) || '').trim().slice(0, 120);
           const mediaType = String((movie && (movie.mediaType || movie.type)) || 'movie').toLowerCase() === 'tv' ? 'tv' : 'movie';
           if (id) clickRecord = { id, mediaType, title, at: Date.now() };
-        } catch { /* 拿不到就当没点卡片 */ }
+        } catch {  }
         return original.apply(this, arguments);
       };
       wrapped.__cfMqHooked = true;
       window.__cineflowOpenDetails = wrapped;
       detailHookOff = () => { if (window.__cineflowOpenDetails === wrapped) window.__cineflowOpenDetails = original; };
-    } catch { /* ignore */ }
+    } catch {  }
   }
 
   function normTitle(value) {
@@ -171,7 +160,6 @@ export function initMovyQualityMenu(deps = {}) {
     } catch { return ''; }
   }
 
-  // 卡片记录只有和详情标题/海报对得上才算数，否则它是上一部
   function freshRecord(dom) {
     const rec = clickRecord;
     if (!rec || Date.now() - rec.at > 5 * 60 * 1000) return null;
@@ -185,7 +173,6 @@ export function initMovyQualityMenu(deps = {}) {
     return [dom.title, dom.alt, dom.year].join('|');
   }
 
-  // 换片：服务器/片源/字幕一律清空
   function resetFilmState() {
     activeProvider = '';
     activeSources = [];
@@ -232,7 +219,6 @@ export function initMovyQualityMenu(deps = {}) {
     } catch { return []; }
   }
 
-  // 用候选 id 逐个核对海报/标题，对不上就换下一个；全错就返回 0（宁可不放也不放错片）
   async function resolveFilmId(sig) {
     const dom = detailTitleFromDom();
     const poster = detailPosterPath();
@@ -308,7 +294,6 @@ export function initMovyQualityMenu(deps = {}) {
     } catch { return { title: '', alt: '', year: '' }; }
   }
 
-  // 识别只走一条路：签名比对，避免「上一部的 id + 这一部的标题」这种混合身份
   function detectContext() {
     try { return syncFilm(); } catch { return false; }
   }
@@ -333,7 +318,6 @@ export function initMovyQualityMenu(deps = {}) {
     return [provider || 'Miami', current.mediaType, idPart, current.seasonId || 1, current.episodeId || 1].join(':');
   };
 
-  // ── 缓存 ───────────────────────────────────────────────────────────────
   function cacheGet(key) {
     const mem = qualityCache.get(key);
     if (mem && Date.now() - mem.at < QUALITY_CACHE_TTL_MS) return mem;
@@ -396,10 +380,9 @@ export function initMovyQualityMenu(deps = {}) {
   }
 
   function providersToCache(list) {
-    try { window.localStorage.setItem(PROVIDERS_CACHE_KEY, JSON.stringify({ at: Date.now(), list })); } catch { /* ignore */ }
+    try { window.localStorage.setItem(PROVIDERS_CACHE_KEY, JSON.stringify({ at: Date.now(), list })); } catch {  }
   }
 
-  // ── 详情上下文 + 播放位置 ──────────────────────────────────────────────
   function hookDetails() {
     try {
       const original = window.__cineflowOpenDetails;
@@ -422,12 +405,12 @@ export function initMovyQualityMenu(deps = {}) {
             || current.seasonId !== next.seasonId || current.episodeId !== next.episodeId);
           if (next) current = next;
           if (changed) scheduleWarm();
-        } catch { /* 上下文失败不影响基线详情 */ }
+        } catch {  }
         return original.apply(this, arguments);
       };
       wrapped.__cfMqHooked = true;
       window.__cineflowOpenDetails = wrapped;
-    } catch { /* ignore */ }
+    } catch {  }
   }
 
   function hookPlayer() {
@@ -437,7 +420,7 @@ export function initMovyQualityMenu(deps = {}) {
       const wrapped = function () { return original.apply(this, arguments); };
       wrapped.__cfMqPlayer = true;
       window.__cineflowOpenResourcePlayer = wrapped;
-    } catch { /* ignore */ }
+    } catch {  }
   }
 
   function videoElement() { return doc.querySelector('#resourcePlayer'); }
@@ -468,7 +451,7 @@ export function initMovyQualityMenu(deps = {}) {
         episodeId: current && current.episodeId,
         subtitles: activeSubtitles.slice(0, 40),
       }));
-    } catch { /* 写不进去就只是没有字幕 */ }
+    } catch {  }
     const resume = currentTimeOf();
     try {
       open.call(window, {
@@ -489,13 +472,12 @@ export function initMovyQualityMenu(deps = {}) {
     const video = videoElement();
     if (!video || tries > 24) return;
     if (video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0) {
-      try { video.currentTime = Math.min(seconds, Math.max(0, video.duration - 2)); } catch { /* ignore */ }
+      try { video.currentTime = Math.min(seconds, Math.max(0, video.duration - 2)); } catch {  }
       return;
     }
     window.setTimeout(() => seekWhenReady(seconds, tries + 1), SEEK_RETRY_MS);
   }
 
-  // ── 预热 + 推送 ────────────────────────────────────────────────────────
   function buildPayload(providerName) {
     if (!current) return null;
     return {
@@ -511,11 +493,10 @@ export function initMovyQualityMenu(deps = {}) {
     };
   }
 
-  // 自动切到有片源的那台：改高亮 + 换画质，不弹任何提示，用户只会觉得「刚好就有」
   function autoSwitch(provider, sources) {
     try {
       if (!provider || !sources || !sources.length) return;
-      const seq = ++requestSeq;   // 作废还在飞的其他请求结果，避免来回跳
+      const seq = ++requestSeq;
       activeProvider = provider;
       activeSources = sources;
       ghostSources = [];
@@ -541,7 +522,7 @@ export function initMovyQualityMenu(deps = {}) {
     }
     probeState.set(row.provider, { ok: !!row.ok, ms: row.ms, count: row.count || 0, pending: false, cooling });
     if (cooling) {
-      // 上游限流：冷却结束后自动再来一轮，界面不用用户手动重试
+
       if (coolingTimer) window.clearTimeout(coolingTimer);
       coolingTimer = window.setTimeout(() => {
         coolingTimer = 0;
@@ -560,7 +541,7 @@ export function initMovyQualityMenu(deps = {}) {
           renderQualities();
           return;
         }
-        // 当前这台还没片源？那就不等它了，直接飘到已经拿到片源的那台
+
         const usable = Array.isArray(row.sources) && row.sources.length
           && !(ghostSources.length && !ghostSources.some((item) => item.fromMemory));
         if (!activeSources.length && usable) {
@@ -601,7 +582,6 @@ export function initMovyQualityMenu(deps = {}) {
     renderServers();
   }
 
-  // 单台补取（预热没赶上、或用户点了某台而它还没同步到）
   function fetchSources(providerName) {
     const key = qualityKey(providerName);
     const pending = inflight.get(key);
@@ -628,7 +608,6 @@ export function initMovyQualityMenu(deps = {}) {
     return task;
   }
 
-  // ── 面板 ───────────────────────────────────────────────────────────────
   function buildPanel() {
     if (panel) return panel;
     panel = doc.createElement('div');
@@ -662,7 +641,7 @@ export function initMovyQualityMenu(deps = {}) {
 
   function renderServers() {
     try { renderServersInner(); } catch (error) {
-      try { console.warn('[cf-mq] renderServers failed:', error && error.message); } catch { /* ignore */ }
+      try { console.warn('[cf-mq] renderServers failed:', error && error.message); } catch {  }
     }
   }
 
@@ -720,7 +699,7 @@ export function initMovyQualityMenu(deps = {}) {
 
   function renderQualities() {
     try { renderQualitiesInner(); } catch (error) {
-      try { console.warn('[cf-mq] renderQualities failed:', error && error.message, error && error.stack && error.stack.split('\n')[1]); } catch { /* ignore */ }
+      try { console.warn('[cf-mq] renderQualities failed:', error && error.message, error && error.stack && error.stack.split('\n')[1]); } catch {  }
     }
   }
 
@@ -731,7 +710,7 @@ export function initMovyQualityMenu(deps = {}) {
     host.textContent = '';
     const list = activeSources.length ? activeSources : ghostSources;
     if (!list.length) {
-      // 绝不静默：要么说「正在取」，要么把失败原因和重试摆出来
+
       const reason = lastErrorByProvider.get(activeProvider);
       if (reason) {
         if (hint) hint.textContent = '未取到';
@@ -772,7 +751,7 @@ export function initMovyQualityMenu(deps = {}) {
     if (hint) hint.textContent = fromMemory
       ? activeProvider + ' · 同步中'
       : (isGhost ? activeProvider + ' · 同步中' : (has4k ? activeProvider : activeProvider + ' · 无 4K'));
-    // Auto 去重：上游有些服务器本身就回一档叫 Auto，别和合成的那颗重复
+
     const realAuto = list.find((item) => /^auto$/i.test(String(item.quality || '')));
     const rest = list.filter((item) => !/^auto$/i.test(String(item.quality || '')));
     const allChips = [{
@@ -834,7 +813,6 @@ export function initMovyQualityMenu(deps = {}) {
     });
   }
 
-  // 播放地址是有签名的（?s=…），缓存里的可能已经过期 —— 所以播放前一律先换一次新鲜地址。
   function pickQuality(pool, wanted) {
     const list = Array.isArray(pool) ? pool : [];
     if (!list.length) return null;
@@ -895,7 +873,7 @@ export function initMovyQualityMenu(deps = {}) {
     try {
       const proxied = await bridge().mediaProxy(pick.url);
       if (proxied && proxied.ok && proxied.url) playUrl = proxied.url;
-    } catch { /* 代理不可用就用原地址 */ }
+    } catch {  }
     const entry = { ...pick, url: playUrl, originUrl: pick.url, quality: wanted, provider: activeProvider, kind: kindOf(playUrl), filmSig: sig };
     const opened = playSource(entry);
     diag.lastPlay = { provider: activeProvider, quality: wanted, ok: opened };
@@ -904,7 +882,6 @@ export function initMovyQualityMenu(deps = {}) {
     if (opened) watchPlayback(entry);
   }
 
-  // 播放没起来（403 / 网络 / CORS）就自动改用应用的代理传输再试一次，别让用户对着黑屏。
   function watchPlayback(entry) {
     const started = Date.now();
     const tick = () => {
@@ -927,7 +904,7 @@ export function initMovyQualityMenu(deps = {}) {
           label: '内置源',
           playbackMode: 'proxy',
         });
-      } catch { /* ignore */ }
+      } catch {  }
     };
     window.setTimeout(tick, 400);
   }
@@ -952,7 +929,7 @@ export function initMovyQualityMenu(deps = {}) {
     buildPanel();
     positionPanel();
     panel.classList.remove('is-hidden');
-    // 第一帧：清单（localStorage 24h）+ 画质（内存/localStorage 30min），零网络往返
+
     const cachedList = providers || providersFromCache();
     if (cachedList) { providers = cachedList; renderServers(); }
     if (!activeProvider) {
@@ -962,13 +939,11 @@ export function initMovyQualityMenu(deps = {}) {
     renderQualities();
     loadPanelSources();
 
-    // 第二帧：清单还没拿到才走一次 IPC（通常 <5ms）；预热早已在详情打开时开始
     if (!providers) loadProviders().then(() => {
       if (!activeProvider && providers && providers.length) selectProvider(providers[0].name);
     });
   }
 
-  // 面板的第一帧：先吃缓存，再补网络；id 没解析出来就等解析完再来
   async function loadPanelSources() {
     const sig = filmSignature();
     if (!current || !current.id) await ensureFilmId();
@@ -1048,33 +1023,32 @@ export function initMovyQualityMenu(deps = {}) {
       if (diag.errors.length < 8) diag.errors.push('ensureButton: ' + String((error && error.message) || error));
     }
     if (had && !doc.getElementById('cfMovyQualityBtn')) diag.removed += 1;
-    // 详情面板一出现就识别当前影片；识别到新的就立刻开始预热（不必等用户点 Quality）
-    try { hookOpenDetails(); } catch { /* ignore */ }
+
+    try { hookOpenDetails(); } catch {  }
     try {
       const panelEl = doc.getElementById('detailPanel');
       if (panelEl && panelEl.classList.contains('is-open') && (syncFilm() || detectContext())) scheduleWarm();
-    } catch { /* ignore */ }
-    try { hookDetails(); } catch { /* ignore */ }
-    try { hookPlayer(); } catch { /* ignore */ }
+    } catch {  }
+    try { hookDetails(); } catch {  }
+    try { hookPlayer(); } catch {  }
   }
 
   let observer = null;
   try {
     observer = new doc.defaultView.MutationObserver(() => {
       if (disposed) return;
-      try { onMutations(); } catch { /* ignore */ }
+      try { onMutations(); } catch {  }
     });
     observer.observe(doc.body, { childList: true, subtree: true });
-  } catch { /* ignore */ }
+  } catch {  }
 
   const onResize = () => { if (panel && !panel.classList.contains('is-hidden')) positionPanel(); };
   window.addEventListener('resize', onResize, { passive: true });
   window.addEventListener('scroll', onResize, { capture: true, passive: true });
   doc.addEventListener('keydown', onKeydown, true);
 
-  // 预热结果推送：一台一台落地，弹层开着就实时更新
   let offWarm = null;
-  try { offWarm = bridge().onWarm ? bridge().onWarm((row) => { try { applyRow(row); } catch { /* ignore */ } }) : null; } catch { offWarm = null; }
+  try { offWarm = bridge().onWarm ? bridge().onWarm((row) => { try { applyRow(row); } catch {  } }) : null; } catch { offWarm = null; }
 
   diag.inits += 1;
   onMutations();
@@ -1083,13 +1057,13 @@ export function initMovyQualityMenu(deps = {}) {
 
   return function dispose() {
     disposed = true;
-    try { detailHookOff?.(); } catch { /* ignore */ }
-    try { observer?.disconnect(); } catch { /* ignore */ }
-    try { doc.removeEventListener('pointerdown', onOutside, true); } catch { /* ignore */ }
-    try { doc.removeEventListener('keydown', onKeydown, true); } catch { /* ignore */ }
-    try { window.removeEventListener('resize', onResize); } catch { /* ignore */ }
-    try { offWarm?.(); } catch { /* ignore */ }
-    try { panel?.remove(); } catch { /* ignore */ }
+    try { detailHookOff?.(); } catch {  }
+    try { observer?.disconnect(); } catch {  }
+    try { doc.removeEventListener('pointerdown', onOutside, true); } catch {  }
+    try { doc.removeEventListener('keydown', onKeydown, true); } catch {  }
+    try { window.removeEventListener('resize', onResize); } catch {  }
+    try { offWarm?.(); } catch {  }
+    try { panel?.remove(); } catch {  }
     panel = null;
   };
 }

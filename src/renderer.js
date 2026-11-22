@@ -1550,7 +1550,7 @@ async function loadPlaybackProxyMode() {
     if (dom.playbackProxySelect) dom.playbackProxySelect.dataset.synced = '0';
     renderPlaybackProxyOptions(info);
   } catch {
-    // keep previous preference
+
   }
 }
 
@@ -1624,7 +1624,7 @@ async function syncResourceSettings() {
     applyResourceSettings(resources);
     updateSettingsState(state.credential);
   } catch {
-    // Resource settings are optional; keep the local default if loading fails.
+
   }
 }
 
@@ -2785,7 +2785,7 @@ function destroyPlayerHls() {
   try {
     playerHls.destroy();
   } catch {
-    // ignore destroy errors
+
   }
   playerHls = null;
 }
@@ -2795,7 +2795,7 @@ function destroyPlayerDash() {
   try {
     playerDash.reset();
   } catch {
-    // ignore destroy errors
+
   }
   playerDash = null;
 }
@@ -2808,7 +2808,7 @@ function destroyPlayerFlv() {
     playerFlv.detachMediaElement?.();
     playerFlv.destroy?.();
   } catch {
-    // ignore destroy errors
+
   }
   playerFlv = null;
 }
@@ -2843,7 +2843,7 @@ function cleanupResourcePlayer() {
     video.removeAttribute('src');
     video.load();
   } catch {
-    // Some invalid media states can throw during cleanup; the next load will reset the element.
+
   }
 }
 
@@ -2952,7 +2952,7 @@ function tuneHlsBufferForFullscreen() {
     playerHls.config.maxBufferSize = 340 * 1000 * 1000;
     playerHls.config.abrEwmaDefaultEstimate = Math.max(playerHls.config.abrEwmaDefaultEstimate || 0, 18000000);
   } catch {
-    // HLS runtime config tuning is best-effort.
+
   }
 }
 
@@ -2972,7 +2972,7 @@ function tuneDashBufferForFullscreen() {
       }
     });
   } catch {
-    // DASH runtime config tuning is best-effort.
+
   }
 }
 
@@ -3027,7 +3027,7 @@ function applyHlsQualityPreference(loadId, options = {}) {
       playerHls.nextLevel = best.index;
     }
   } catch {
-    // Keep ABR default if a source does not allow level hinting.
+
   }
   const label = best.height ? `${best.height}P` : '高清';
   if (!options.silent) setPlayerStatus(prefers4k && best.height >= 2000 ? '4K 优先 · 就绪' : `高清就绪 · ${label}`);
@@ -3051,7 +3051,7 @@ function applyFullscreenPlaybackQuality(options = {}) {
       if (options.aggressive && qualityIndex >= 0) playerDash.setQualityFor?.('video', qualityIndex, false);
       if (options.aggressive) setPlayerStatus(best?.height >= 2000 ? '全屏 4K 优先' : '全屏高清已优化');
     } catch {
-      // DASH fullscreen tuning is best-effort.
+
     }
   }
 }
@@ -3241,7 +3241,7 @@ async function startPlayerTransport(loadId, mediaKind, playbackUrl) {
             }
           });
         } catch {
-          // DASH settings are best-effort; keep the engine default if a version rejects a key.
+
         }
         playerDash.on?.('manifestLoaded', () => setPlayerStatus('DASH 已加载'));
         playerDash.on?.('streamInitialized', () => setPlayerStatus('DASH 就绪'));
@@ -3331,7 +3331,7 @@ async function tryFallbackToProxy(loadId) {
     try {
       proxyUrl = await pendingProxyUrl || proxyUrl;
     } catch {
-      // ignore and fall back to on-demand IPC below
+
     }
   }
   if (!proxyUrl || proxyUrl === state.player.url) {
@@ -3408,8 +3408,6 @@ async function openResourcePlayer(payload = {}) {
     seeking: false
   };
 
-  // Playback proxy preference: force the local media proxy so the main process
-  // can apply the chosen upstream (proxy / DoH-direct) for every segment.
   if (state.playbackProxyMode === 'proxy' || state.playbackProxyMode === 'direct') {
     state.player.transport = 'proxy';
   }
@@ -3848,7 +3846,6 @@ function islandPointerPayload(event) {
   };
 }
 
-
 function canStartIslandDrag(event) {
   if (!['island', 'island-expanded', 'island-docked'].includes(state.windowMode)) return false;
   if (!isPrimaryPointer(event)) return false;
@@ -4024,7 +4021,7 @@ function findMovieCard(target) {
 
 function movieFromCard(card) {
   const contentKey = card?.dataset?.contentKey || (card?.dataset?.movieId ? contentKeyOf(card.dataset.movieId, card.dataset.mediaType || 'movie') : '');
-  // [CineFlow:Rec] 推荐引擎桥: 引擎注入的卡片不在 cardMovies, 回退查询(桥缺失时行为不变)
+
   return (contentKey ? state.cardMovies.get(String(contentKey)) : null)
     || (typeof window !== 'undefined' && typeof window.__cineflowRecCard === 'function' ? window.__cineflowRecCard(String(contentKey || '')) : null);
 }
@@ -4325,7 +4322,4 @@ initIncrementalPages({ api, state, escapeHtml });
 
 window.__cineflowOpenResourcePlayer = (payload) => openResourcePlayer(payload);
 window.__cineflowOpenDetails = (movieId, movie) => openDetails(movieId, movie);
-
-
-
 

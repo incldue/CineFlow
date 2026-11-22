@@ -1,9 +1,9 @@
-
 const LITE_CLASS = 'cf-adaptive-lite';
 const DORMANT_CLASS = 'cf33-dormant';
 const STASH_ATTR = 'data-cf-stash';
 
 const LONG_TASK_WINDOW = 24;
+
 const DENSITY_WINDOW_MS = 12000;
 const LITE_ENTER_P95_MS = 140;
 const LITE_ENTER_MIN_TASKS = 12;
@@ -11,6 +11,7 @@ const LITE_EXIT_P95_MS = 70;
 const LITE_EXIT_STREAK = 20;
 
 const LITE_CSS = [
+
   'html.' + LITE_CLASS + ' *,',
   'html.' + LITE_CLASS + ' *::before,',
   'html.' + LITE_CLASS + ' *::after {',
@@ -73,7 +74,7 @@ function createLongTaskMonitor(onLevel, onSample) {
     if (stamps.length > LONG_TASK_WINDOW * 4) stamps.shift();
     durations.push(duration);
     if (durations.length > LONG_TASK_WINDOW) durations.shift();
-    /* 密度：窗口内的长任务数量 */
+
     let dense = 0;
     for (let i = stamps.length - 1; i >= 0; i -= 1) {
       if (now - stamps[i] <= DENSITY_WINDOW_MS) dense += 1;
@@ -110,6 +111,7 @@ function createLongTaskMonitor(onLevel, onSample) {
     observer.feed = feed;
     return observer;
   } catch {
+
     return { feed };
   }
 }
@@ -142,7 +144,7 @@ function createImagePurge() {
         count += 1;
         bytes += src.length;
       } catch {
-        /* ignore */
+
       }
     }
     purged += count;
@@ -160,7 +162,7 @@ function createImagePurge() {
         if (src) img.setAttribute('src', src);
         count += 1;
       } catch {
-        /* ignore */
+
       }
     }
     restored += count;
@@ -183,7 +185,7 @@ function createImagePurge() {
     });
     observer.observe(document.body, { attributes: true, attributeFilter: ['class'], subtree: true });
   } catch {
-    /* ignore */
+
   }
 
   return {
@@ -210,7 +212,7 @@ function createMediaReleaser() {
         video.load();
         changed += 1;
       } catch {
-        /* ignore */
+
       }
     }
     const frames = modal.querySelectorAll('iframe');
@@ -220,7 +222,7 @@ function createMediaReleaser() {
         frame.setAttribute('src', 'about:blank');
         changed += 1;
       } catch {
-        /* ignore */
+
       }
     }
     releases += changed;
@@ -236,7 +238,7 @@ function createMediaReleaser() {
     });
     observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
   } catch {
-    /* ignore */
+
   }
 
   return { release: () => releaseOnce(document.querySelector('#playerModal')), get stats() { return { releases }; } };
@@ -257,11 +259,11 @@ export function initSessionHygiene() {
       diag.level = 'lite';
       diag.liteEntered += 1;
       document.documentElement.classList.add(LITE_CLASS);
-      try { console.warn('[CineFlow] 自适应降级开启（长任务 p95 ' + Math.round(value) + 'ms）'); } catch { /* ignore */ }
+      try { console.warn('[CineFlow] 自适应降级开启（长任务 p95 ' + Math.round(value) + 'ms）'); } catch {  }
     } else {
       diag.level = 'ok';
       document.documentElement.classList.remove(LITE_CLASS);
-      try { console.warn('[CineFlow] 自适应降级解除（长任务 p95 ' + Math.round(value) + 'ms）'); } catch { /* ignore */ }
+      try { console.warn('[CineFlow] 自适应降级解除（长任务 p95 ' + Math.round(value) + 'ms）'); } catch {  }
     }
   }, (value) => {
     diag.p95 = Math.round(value);
@@ -299,7 +301,7 @@ export function initSessionHygiene() {
       if (!document.hidden) diag.restored += images.revive();
       const result = images.purge();
       diag.purged += result.count;
-    } catch { /* ignore */ }
+    } catch {  }
     diag.purged = images.stats.purged;
     diag.restored = images.stats.restored;
     diag.releases = media.stats.releases;
@@ -309,21 +311,18 @@ export function initSessionHygiene() {
 
   window.__cf68HygieneState = diag;
 
-  /* 主进程内存总督在压力时调用（Apple 的 didReceiveMemoryWarning 等价物）。
-     只做"看不见的东西不该占内存"这一件事：先回收休眠页图片，再尽力解除降级态，
-     最后返回水位供主进程记录。 */
   window.__cf68HygieneForce = (reason) => {
     let purged = 0;
     try {
       const result = images.purge();
       purged = result.count;
       diag.purged += purged;
-    } catch { /* ignore */ }
+    } catch {  }
     let released = 0;
     try {
       const modal = document.querySelector('#playerModal');
       if (modal && !modal.classList.contains('is-open')) released = media.release();
-    } catch { /* ignore */ }
+    } catch {  }
     diag.lastReason = reason || 'pressure';
     return { purged, released, level: diag.level, p95: diag.p95 };
   };

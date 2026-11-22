@@ -1,5 +1,3 @@
-// 播放器字幕层：片源轨 / 探测轨 / 在线轨 / 本地文件，四路来源 + 实时 AI 双语。
-
 import './movy-subtitle.css';
 
 const SETTINGS_KEY = 'cineflow:movy-sub:v1';
@@ -61,7 +59,7 @@ function readJson(key, fallback) {
 }
 
 function writeJson(key, value) {
-  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch {  }
 }
 
 export function initMovySubtitle(deps = {}) {
@@ -248,7 +246,6 @@ export function initMovySubtitle(deps = {}) {
     await loadCues(track);
   }
 
-  // 本地字幕：面板选文件，也能把 srt/vtt 拖到播放器上
   async function applyLocalCues(list, name) {
     if (!Array.isArray(list) || !list.length) return;
     const entry = { url: 'local:' + (name || 'file'), lang: 'local', language: 'local', label: name || '本地字幕', online: true };
@@ -332,7 +329,6 @@ export function initMovySubtitle(deps = {}) {
     return time < cues[hit].e ? hit : -1;
   }
 
-  // 翻译优先渲染层直连，主进程兜底；结果落 localStorage 跨会话复用
   const translateQueue = [];
   let translateActive = 0;
 
@@ -363,7 +359,7 @@ export function initMovySubtitle(deps = {}) {
     const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl='
       + encodeURIComponent(from || 'auto') + '&tl=zh-CN&q=' + encodeURIComponent(text);
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
-    const timer = window.setTimeout(() => { try { controller && controller.abort(); } catch { /* ignore */ } }, 2500);
+    const timer = window.setTimeout(() => { try { controller && controller.abort(); } catch {  } }, 2500);
     try {
       const response = await window.fetch(url, { mode: 'cors', signal: controller ? controller.signal : undefined });
       if (!response.ok) throw new Error('HTTP ' + response.status);
@@ -475,7 +471,7 @@ export function initMovySubtitle(deps = {}) {
     buildOverlay();
     buildButton();
     if (el && el !== video) {
-      if (video && video.__cfSubBound) { /* 旧节点随基线的关闭流程一起销毁 */ }
+      if (video && video.__cfSubBound) {  }
       video = el;
       video.__cfSubBound = true;
     }
@@ -496,7 +492,6 @@ export function initMovySubtitle(deps = {}) {
       .map((item) => ({ url: item.url, lang: item.lang || item.language || '', language: item.language || item.lang || '' }));
   }
 
-  // 片源没带字幕轨：让主进程去主播放列表和同目录 subs/ 里找一遍
   function discoverTracks(context) {
     const api = bridge();
     if (!api) return;
@@ -519,7 +514,6 @@ export function initMovySubtitle(deps = {}) {
     if (target) chooseTrack(encodeURIComponent(target.url));
   }
 
-  // 同一部片在不同镜像上的字幕不一样，挨个问一遍
   async function huntOtherProviders(context) {
     const api = bridge();
     if (!api || typeof api.sources !== 'function' || !context) { searchOnline(context); return; }
@@ -528,7 +522,7 @@ export function initMovySubtitle(deps = {}) {
     try {
       const cached = JSON.parse(window.localStorage.getItem('cineflow:movy-providers:v1') || 'null');
       if (cached && Array.isArray(cached.list)) all = cached.list;
-    } catch { /* 用下面的兜底名单 */ }
+    } catch {  }
     if (!all.length) all = ['Miami', 'Boise', 'Nashville', 'Chicago', 'Vegas', 'Tokyo', 'Berlin', 'Paris'];
     const pool = all.map((item) => (typeof item === 'string' ? item : (item && (item.name || item.id)) || ''))
       .filter((name) => name && !tried.has(name));
@@ -546,13 +540,12 @@ export function initMovySubtitle(deps = {}) {
         });
         const found = normalizeTracks(result && result.subtitles);
         if (found.length) { diag.huntHit = provider; applyTracks(found); return; }
-      } catch { /* 换下一台 */ }
+      } catch {  }
     }
     renderPanel();
     searchOnline(context);
   }
 
-  // 字幕站：片名对上了就直接拿一条（中文优先），省得用户自己找
   async function searchOnline(context) {
     const api = bridge();
     if (onlineTried || !api || typeof api.subOnline !== 'function' || !context) return;
@@ -598,7 +591,6 @@ export function initMovySubtitle(deps = {}) {
     return el ? String(el.currentSrc || el.src || '') : '';
   }
 
-  // 换片：把上一部留下的 cue/轨/原生字幕全清干净，别让旧句子挂在新画面上
   function resetForSwitch() {
     loadToken += 1;
     tracks = []; activeTrack = null; cues = []; cueIndex = -1; shownKey = ''; diag.cues = 0;
@@ -612,7 +604,6 @@ export function initMovySubtitle(deps = {}) {
     updateButton();
   }
 
-  // 播放器复用同一个 video 节点时 DOM 不会重建，光看 at 不够，这里比对片源和上下文
   function watchSwitch() {
     const raw = window.localStorage.getItem(PLAYCTX_KEY) || '';
     const context = playContext();
@@ -638,7 +629,7 @@ export function initMovySubtitle(deps = {}) {
     const remembered = tracks.find((item) => item.url === settings.trackUrl);
     const target = remembered || pickDefaultTrack(tracks);
     if (!settings.aiTouched && target && !isChinese(target.language || target.lang)) {
-      settings.ai = true;   // 非中文字幕轨：直接给双语，中文用户不用再点一次
+      settings.ai = true;
     }
     attach();
     if (!tracks.length) {
@@ -653,7 +644,6 @@ export function initMovySubtitle(deps = {}) {
     if (target) chooseTrack(encodeURIComponent(target.url));
   }
 
-  // 拖动字幕调高度（只在下沿细条上响应，不抢视频的点击）
   doc.addEventListener('pointerdown', (event) => {
     const grip = event.target && event.target.closest ? event.target.closest('.cf-sub-grip') : null;
     if (!grip || !modalOpen()) return;
@@ -700,7 +690,6 @@ export function initMovySubtitle(deps = {}) {
     return element;
   }
 
-  // 全屏落在 video 上时子节点不渲染，改用原生 TextTrack 出字（只放当前句前后几句，随播放滚动）。
   let nativeTrack = null;
   let nativeVideo = null;
   let nativeLastIndex = -2;
@@ -719,7 +708,7 @@ export function initMovySubtitle(deps = {}) {
 
   function clearNative() {
     if (!nativeTrack) return;
-    try { while (nativeTrack.cues && nativeTrack.cues.length) nativeTrack.removeCue(nativeTrack.cues[0]); } catch { /* ignore */ }
+    try { while (nativeTrack.cues && nativeTrack.cues.length) nativeTrack.removeCue(nativeTrack.cues[0]); } catch {  }
   }
 
   function textFor(cue) {
@@ -753,9 +742,9 @@ export function initMovySubtitle(deps = {}) {
       try {
         const vtt = new window.VTTCue(Math.max(0, cue.s), Math.max(cue.s + 0.05, cue.e), text.replace(/\n/g, '\u000a'));
         track.addCue(vtt);
-      } catch { /* 单句失败就算了 */ }
+      } catch {  }
     }
-    try { track.mode = 'showing'; } catch { /* ignore */ }
+    try { track.mode = 'showing'; } catch {  }
   }
 
   function placeOverlay() {
@@ -773,7 +762,6 @@ export function initMovySubtitle(deps = {}) {
     positionPanel();
   }
 
-  // 拖入字幕文件：srt/vtt/ass 直接解析成 cue
   function decodeFileBytes(buffer) {
     try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
     catch {
@@ -809,7 +797,6 @@ export function initMovySubtitle(deps = {}) {
   doc.addEventListener('fullscreenchange', placeOverlay, true);
   doc.addEventListener('webkitfullscreenchange', placeOverlay, true);
 
-  // 播放器每次打开都会重建 DOM，用观察器在打开瞬间挂载
   const observer = new MutationObserver(() => {
     if (!modalOpen()) {
       if (panel && !panel.classList.contains('is-hidden')) panel.classList.add('is-hidden');

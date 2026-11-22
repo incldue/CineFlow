@@ -1,4 +1,3 @@
-
 const SCROLL_IDLE_MS = 420;
 const DORMANT_AFTER_MS = 900;
 const SCROLL_CLASS = 'cf33-scroll';
@@ -20,15 +19,16 @@ function watchScrollActivity() {
   let timer = 0;
 
   const engage = () => {
+
     try {
       if (body.classList.contains('splash-active')) return;
     } catch (error) {
-      /* 忽略 */
+
     }
     try {
       if (!body.classList.contains(SCROLL_CLASS)) body.classList.add(SCROLL_CLASS);
     } catch (error) {
-      /* 忽略 */
+
     }
     if (timer) window.clearTimeout(timer);
     timer = window.setTimeout(() => {
@@ -36,7 +36,7 @@ function watchScrollActivity() {
       try {
         body.classList.remove(SCROLL_CLASS);
       } catch (error) {
-        /* 忽略 */
+
       }
     }, SCROLL_IDLE_MS);
   };
@@ -55,6 +55,7 @@ function watchScrollActivity() {
 
 function armDormantPages() {
   const pages = Array.from(document.querySelectorAll(PAGE_SELECTOR));
+
   if (!pages.length) {
     if (window.__cf33DormantWatch) return false;
     window.__cf33DormantWatch = true;
@@ -67,14 +68,14 @@ function armDormantPages() {
         try {
           armDormantPages();
         } catch (error) {
-          /* 忽略 */
+
         }
       });
       observer.observe(root, { childList: true, subtree: true });
     } catch (error) {
-      /* 忽略 */
+
     }
-    // 兜底：DOM 观察器在这里偶尔不触发，直接排几个定时重试
+
     [400, 1200, 2600].forEach((delay) => {
       window.setTimeout(() => {
         if (document.querySelector(PAGE_SELECTOR) && window.__cf33DormantWatch) {
@@ -82,7 +83,7 @@ function armDormantPages() {
           try {
             armDormantPages();
           } catch (error) {
-            /* 忽略 */
+
           }
         }
       }, delay);
@@ -107,11 +108,12 @@ function armDormantPages() {
   const wakeAll = () => pages.forEach(wake);
 
   pages.forEach((page) => {
+
     const isHidden = () => {
       const opacity = page.style.opacity;
       if (opacity === '1') return false;
       if (opacity === '0') return true;
-      // 还没被 page-transition 摆弄过：看它是不是当前页
+
       return !page.classList.contains('is-current');
     };
 
@@ -127,12 +129,12 @@ function armDormantPages() {
           try {
             if (isHidden() && page.isConnected) page.classList.add(DORMANT_CLASS);
           } catch (error) {
-            /* 忽略 */
+
           }
         }, DORMANT_AFTER_MS);
         timers.set(page, timer);
       } catch (error) {
-        /* 忽略 */
+
       }
     };
 
@@ -141,17 +143,16 @@ function armDormantPages() {
     try {
       new MutationObserver(evaluate).observe(page, { attributes: true, attributeFilter: ['style'] });
     } catch (error) {
-      /* 忽略 */
+
     }
   });
 
-  // 切页入口：捕获阶段抢先唤醒，早于 page-transition 的处理器
   try {
     document.addEventListener('keydown', wakeAll, { capture: true, passive: true });
     document.addEventListener('pointerdown', wakeAll, { capture: true, passive: true });
     document.addEventListener('focusin', wakeAll, { capture: true, passive: true });
   } catch (error) {
-    /* 忽略 */
+
   }
 
   return true;
@@ -163,10 +164,9 @@ export function initResponseBoost() {
     if (document.documentElement.dataset.cf33Boost === '1') return { cached: true };
     document.documentElement.dataset.cf33Boost = '1';
   } catch (error) {
-    /* 忽略 */
+
   }
 
-  // 系统要求减少动态效果时不接管滚动期的动画暂停（其余优化照旧）
   results.reducedMotion = prefersReducedMotion();
   if (!results.reducedMotion) {
     try {

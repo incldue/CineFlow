@@ -1,8 +1,8 @@
-
 #cfHeroLogo.cf-hero-logo {
   display: block;
   width: auto;
   height: auto;
+
   max-width: min(100%, 460px);
   max-height: clamp(54px, 9vh, 100px);
   object-fit: contain;
@@ -12,6 +12,7 @@
   filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.5));
   animation: cfHeroLogoIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 #dailyTitle {
   transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity;
@@ -33,7 +34,6 @@ html.cf-hero-logo-on #dailyTitle {
   to { opacity: 1; transform: none; }
 }
 
-/* 窄屏（移动端/岛模式）：字标更收敛，优先保证片名可读 */
 @media (max-width: 899px) {
   #cfHeroLogo.cf-hero-logo {
     max-width: min(100%, 300px);

@@ -1,9 +1,10 @@
-
 const RAIL_CARD = '.movie-rail .movie-card';
 const LIT_CLASS = 'cf37-tilt';
 const READY_FLAG = 'cf37CardTilt';
+
 const MAX_RX = 5;
 const MAX_RY = 6;
+
 const MAX_COPY = 3;
 
 let current = null;
@@ -55,7 +56,7 @@ function clear(card) {
     card.style.removeProperty('--cf37-cx');
     card.style.removeProperty('--cf37-cy');
   } catch (error) {
-    /* 节点已被替换等情况 */
+
   }
 }
 
@@ -74,6 +75,7 @@ function apply() {
   try {
     if (card.isConnected === false) { reset(); return; }
     card.classList.add(LIT_CLASS);
+
     const rx = shot.rx.toFixed(2);
     const ry = shot.ry.toFixed(2);
     const cx = shot.cx.toFixed(2);
@@ -83,7 +85,7 @@ function apply() {
     if (cx !== shot._cx) { shot._cx = cx; card.style.setProperty('--cf37-cx', cx + 'px'); }
     if (cy !== shot._cy) { shot._cy = cy; card.style.setProperty('--cf37-cy', cy + 'px'); }
   } catch (error) {
-    /* 装饰层失败不影响点击 */
+
   }
 }
 
@@ -109,19 +111,21 @@ function onPointerMove(event) {
     const rect = rectOf(card);
     if (!rect.width || !rect.height) return;
 
-    // -1 ~ 1，0 为卡片正中
     const nx = Math.min(1, Math.max(-1, ((event.clientX - rect.left) / rect.width) * 2 - 1));
     const ny = Math.min(1, Math.max(-1, ((event.clientY - rect.top) / rect.height) * 2 - 1));
 
     current = card;
     snapshot = {
+
       rx: ny * MAX_RX,
+
       ry: -nx * MAX_RY,
       cx: -nx * MAX_COPY,
       cy: -ny * MAX_COPY
     };
     schedule();
   } catch (error) {
+
   }
 }
 
@@ -131,6 +135,7 @@ function onPointerOut(event) {
     if (!card) return;
     const related = event.relatedTarget;
     if (related instanceof Node && card.contains(related)) return;
+
     const x = event.clientX;
     const y = event.clientY;
     if (typeof x === 'number' && typeof y === 'number' && (x || y)) {
@@ -139,7 +144,7 @@ function onPointerOut(event) {
     }
     reset();
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -161,10 +166,11 @@ function bind() {
     bound = true;
     return true;
   } catch (error) {
-    try { console.warn('[CineFlow] 卡片 3D 悬停跟随装配失败，已跳过', error); } catch (e) { /* 忽略 */ }
+    try { console.warn('[CineFlow] 卡片 3D 悬停跟随装配失败，已跳过', error); } catch (e) {  }
     return false;
   }
 }
+
 export function initCardTilt() {
   try {
     return bind();

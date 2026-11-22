@@ -1,4 +1,3 @@
-
 import {
   requestTick,
   subscribe,
@@ -11,18 +10,16 @@ const RAIL_FLAG = 'cf30Rail';
 const ENTER_CLASS = 'cf30-enter';
 const IDLE_CLASS = 'cf30-idle';
 const IDLE_MS = 2500;
+
 const BASELINE_REVEAL_MAX = 14;
 
-/* ============================================================
- * B2 · 轨道滚动进度细线
- * ============================================================ */
 function decorateRail(rail) {
   if (!(rail instanceof HTMLElement) || rail.dataset[RAIL_FLAG] === '1') return;
   rail.dataset[RAIL_FLAG] = '1';
 
   const host = rail.parentElement;
   if (!host) return;
-  // 复用 premium-ui 已有的包裹态类；没有就补一个（只加类，不建节点、不影响布局）
+
   if (!host.classList.contains('cf9-rail-wrap')) host.classList.add('cf9-rail-wrap');
 
   const sub = {
@@ -59,7 +56,7 @@ function decorateRail(rail) {
     observer.observe(rail);
     if (rail.firstElementChild) observer.observe(rail.firstElementChild);
   } catch (error) {
-    /* 没有 ResizeObserver 就只靠 scroll 更新 */
+
   }
   requestTick();
 }
@@ -77,22 +74,23 @@ function armRailProgress() {
   try {
     new MutationObserver(scan).observe(root, { childList: true, subtree: true });
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
-/* ============================================================
- * B5 · 卡片入场 stagger（只补基线未覆盖的部分）
- * ============================================================ */
 function applyCardEnter(card) {
   if (!(card instanceof HTMLElement)) return;
   if (prefersReducedMotion()) return;
+
   if (card.dataset.cf30Played === '1') return;
+
   if (card.classList.contains('is-premium-revealing')) return;
+
   const parent = card.parentElement;
   const isRail = Boolean(parent && parent.classList.contains('movie-rail'));
   let index = 0;
   if (parent) index = Array.prototype.indexOf.call(parent.children, card);
+
   if (isRail && index < BASELINE_REVEAL_MAX) {
     const armedAt = Number(card.dataset.cf30ArmedAt || 0);
     if (armedAt && Date.now() - armedAt < 1600) return;
@@ -109,7 +107,7 @@ function applyCardEnter(card) {
       card.classList.remove(ENTER_CLASS);
       card.style.removeProperty('--cf30-enter-delay');
     } catch (error) {
-      /* 节点已被替换，忽略 */
+
     }
   }, 620 + delay + 120);
 }
@@ -128,8 +126,9 @@ function armCardEntrance() {
       observer.unobserve(entry.target);
       applyCardEnter(entry.target);
     }
-    // threshold 用 0 而不是 0.02：零面积或刚露头的卡片也能触发，且不会漏掉
+
   }, { rootMargin: '0px 0px -32px 0px', threshold: 0 });
+
   const flushVisible = () => {
     const vh = window.innerHeight || 0;
     const vw = window.innerWidth || 0;
@@ -144,7 +143,7 @@ function armCardEntrance() {
           applyCardEnter(card);
         }
       } catch (error) {
-        /* 忽略 */
+
       }
     });
   };
@@ -165,11 +164,10 @@ function armCardEntrance() {
       fallbackTimer = window.setTimeout(flushVisible, 260);
     }).observe(root, { childList: true, subtree: true });
   } catch (error) {
-    /* 忽略 */
+
   }
   fallbackTimer = window.setTimeout(flushVisible, 260);
 
-  // 滚动进入新一排也要立刻播：IO 可靠时它先到，IO 失灵时这里兜住。
   let scrollTimer = 0;
   onScrollCapture(() => {
     window.clearTimeout(scrollTimer);
@@ -203,7 +201,9 @@ function armHeroParallax() {
       return Number.isFinite(top) ? Math.max(0, top) : 0;
     },
     write(top) {
+
       const backdropShift = Math.min(top * 0.16, 120);
+
       const copyShift = -Math.min(top * 0.06, 36);
       hero.style.setProperty('--cf30-hero-shift', backdropShift.toFixed(1) + 'px');
       hero.style.setProperty('--cf30-hero-copy-shift', copyShift.toFixed(1) + 'px');
@@ -254,11 +254,11 @@ function armRipple() {
         try {
           span.remove();
         } catch (error) {
-          /* 忽略 */
+
         }
       }, 760);
     } catch (error) {
-      /* 涟漪失败不影响点击 */
+
     }
   }, { passive: true });
 }
@@ -287,7 +287,7 @@ function rollScore(pill) {
     active: true,
     write(_ignored, now) {
       const progress = Math.min(1, Math.max(0, (now - startedAt) / DURATION));
-      // 三次缓出：数字先快后慢地停住，比线性更有"落定感"
+
       const eased = 1 - Math.pow(1 - progress, 3);
       pill.textContent = prefix + (target * eased).toFixed(decimals) + suffix;
       if (progress >= 1) stop();
@@ -322,7 +322,7 @@ function armScoreRoll() {
   try {
     new MutationObserver(scan).observe(root, { childList: true, subtree: true });
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -346,7 +346,7 @@ function armPlayerIdle() {
     timer = window.setTimeout(() => {
       const current = shellOf();
       if (!current) return;
-      // 焦点还在控制条里（键盘操作）就不要藏
+
       const active = document.activeElement;
       if (active && current.contains(active) && active !== document.body) return;
       current.classList.add(IDLE_CLASS);
@@ -358,7 +358,6 @@ function armPlayerIdle() {
   document.addEventListener('keydown', wake, { passive: true });
   document.addEventListener('wheel', wake, { passive: true });
 
-  // 播放器开合时立刻重新计时
   const attach = () => {
     const modal = document.querySelector('.player-modal');
     if (!modal) {
@@ -368,19 +367,13 @@ function armPlayerIdle() {
     try {
       new MutationObserver(wake).observe(modal, { attributes: true, attributeFilter: ['class'] });
     } catch (error) {
-      /* 忽略 */
+
     }
     wake();
   };
   attach();
 }
 
-/* ============================================================
- * A2 兜底 · 海报 blur-up 的 is-loaded 补标
- * premium-ui 已有 capture 监听与 MutationObserver，这里再兜一层：
- * 只要 img.complete 且 naturalWidth > 0 就补 is-loaded，避免任何时序空隙里
- * 海报永久停在 blur(14px) 的模糊态。
- * ============================================================ */
 function armPosterLoaded() {
   const root = document.getElementById('app');
   if (!root) {
@@ -400,13 +393,10 @@ function armPosterLoaded() {
   try {
     new MutationObserver(() => mark(root)).observe(root, { childList: true, subtree: true });
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
-/* ============================================================
- * 装配入口（由 src/incremental-pages.js 一行调用，重复调用安全）
- * ============================================================ */
 export function initMotionExtras() {
   const results = {};
   const run = (name, fn) => {
@@ -418,7 +408,7 @@ export function initMotionExtras() {
       try {
         console.warn('[CineFlow] 动效模块装配失败，已跳过：' + name, error);
       } catch (inner) {
-        /* 忽略 */
+
       }
     }
   };

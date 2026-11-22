@@ -1,4 +1,3 @@
-
 import './player-skip.css';
 
 const STEP_SECONDS = 10;
@@ -38,7 +37,7 @@ export function initPlayerSkip(deps = {}) {
       flashEl.classList.add('is-on');
       window.clearTimeout(flashTimer);
       flashTimer = window.setTimeout(() => flashEl && flashEl.classList.remove('is-on'), FLASH_MS);
-    } catch { /* 提示失败不影响跳转 */ }
+    } catch {  }
   }
 
   function apply(delta) {
@@ -59,9 +58,9 @@ export function initPlayerSkip(deps = {}) {
         const playing = el.play();
         if (playing && typeof playing.catch === 'function') playing.catch(() => {});
       }
-    } catch { /* 极端情况下退回原生行为 */ }
+    } catch {  }
     window.setTimeout(() => {
-      try { el.classList.remove('is-seeking'); } catch { /* ignore */ }
+      try { el.classList.remove('is-seeking'); } catch {  }
     }, 260);
   }
 
@@ -121,7 +120,7 @@ export function initPlayerSkip(deps = {}) {
     doc.removeEventListener('dblclick', onDoubleClick, true);
     window.clearTimeout(timer);
     window.clearTimeout(flashTimer);
-    try { flashEl?.remove(); } catch { /* ignore */ }
+    try { flashEl?.remove(); } catch {  }
   };
 }
 

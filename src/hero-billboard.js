@@ -1,4 +1,3 @@
-
 import './hero-immersive.css';
 
 const GATE_TIMEOUT_MS = 1200;
@@ -18,7 +17,7 @@ export function initHeroBillboard(deps = {}) {
 
   const bridge = () => (typeof window !== 'undefined' ? window.cineflowLogos : null);
   if (!bridge || !bridge()) {
-    // 没有 log o 通道时仍然保留沉浸层（纯 CSS），只是不出字标
+
   }
 
   let disposed = false;
@@ -39,7 +38,7 @@ export function initHeroBillboard(deps = {}) {
       doc.documentElement.classList.remove('cf-hero-logo-on');
       const old = doc.getElementById('cfHeroLogo');
       if (old) old.remove();
-    } catch { /* ignore */ }
+    } catch {  }
   }
 
   function applyLogo(result) {
@@ -57,12 +56,12 @@ export function initHeroBillboard(deps = {}) {
       img.loading = 'eager';
       img.addEventListener('load', () => {
         if (disposed) return;
-        // 等解码完成再淡出文字，避免"字没了图还没出来"的空窗
-        const done = () => { try { doc.documentElement.classList.add('cf-hero-logo-on'); } catch { /* ignore */ } };
+
+        const done = () => { try { doc.documentElement.classList.add('cf-hero-logo-on'); } catch {  } };
         if (typeof img.decode === 'function') img.decode().then(done).catch(done);
         else done();
       }, { once: true });
-      img.addEventListener('error', () => { try { img.remove(); } catch { /* ignore */ } }, { once: true });
+      img.addEventListener('error', () => { try { img.remove(); } catch {  } }, { once: true });
       title.insertAdjacentElement('beforebegin', img);
     }
     if (img.getAttribute('src') !== result.url) img.src = result.url;
@@ -85,7 +84,7 @@ export function initHeroBillboard(deps = {}) {
       if (disposed || mine !== generation) return;
       if (result && result.ok) applyLogo(result);
       else clearLogo();
-    } catch { /* 静默：保留文字标题 */ }
+    } catch {  }
   }
 
   function watchTitle() {
@@ -128,12 +127,13 @@ export function initHeroBillboard(deps = {}) {
     };
     waitBackdrop();
   }
+
   const bootTimer = window.setTimeout(boot, 700);
 
   return function dispose() {
     disposed = true;
     window.clearTimeout(bootTimer);
-    try { observer?.disconnect(); } catch { /* ignore */ }
+    try { observer?.disconnect(); } catch {  }
     clearLogo();
   };
 }

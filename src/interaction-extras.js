@@ -1,4 +1,3 @@
-
 const TIP_STORAGE_PREFIX = 'cf34-tip-';
 const TIP_DURATION_MS = 2600;
 
@@ -8,10 +7,11 @@ export function initInteractionExtras() {
   window.__cf34Interaction = '1';
 
   window.__cf34 = window.__cf34 || {};
-  // railWheel 恒为 false：滚轮路径保持浏览器原生，不留任何非 passive 监听器
+
   window.__cf34.interaction = { railWheel: false, oneshotTip: true };
   return true;
 }
+
 export function showOneshotTip(key, message) {
   try {
     if (!key || !message) return false;
@@ -36,7 +36,7 @@ export function showOneshotTip(key, message) {
     try {
       window.localStorage.setItem(storageKey, '1');
     } catch (error) {
-      /* 隐私模式下写不进去就算了 */
+
     }
     return true;
   } catch (error) {

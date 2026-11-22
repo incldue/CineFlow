@@ -1,4 +1,3 @@
-
 const COPY_BTN_SELECTOR = '#playerCopyBtn';
 const WATCH_FLAG = 'cf38PlayerActions';
 
@@ -12,16 +11,17 @@ function strip(root) {
     if (!buttons || !buttons.length) return;
     for (const button of buttons) {
       try {
+
         button.replaceWith?.();
         button.remove();
         diag.removed += 1;
       } catch (error) {
-        // 极端情况下退化成隐藏，至少视觉上达标
-        try { button.hidden = true; } catch (e) { /* 忽略 */ }
+
+        try { button.hidden = true; } catch (e) {  }
       }
     }
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -31,8 +31,8 @@ function bind() {
   try {
     document.documentElement.dataset[WATCH_FLAG] = '1';
 
-    // 立刻扫一次：打包后脚本在 body 解析完之后执行，按钮通常已经在了
     strip(document);
+
     try {
       new MutationObserver((records) => {
         for (const record of records) {
@@ -46,8 +46,9 @@ function bind() {
         }
       }).observe(document.documentElement, { childList: true, subtree: true });
     } catch (error) {
-      /* 忽略 */
+
     }
+
     window.setTimeout(() => strip(document), 1200);
     window.setTimeout(() => strip(document), 3600);
 
@@ -59,10 +60,11 @@ function bind() {
     bound = true;
     return true;
   } catch (error) {
-    try { console.warn('[CineFlow] 播放器操作栏清理装配失败，已跳过', error); } catch (e) { /* 忽略 */ }
+    try { console.warn('[CineFlow] 播放器操作栏清理装配失败，已跳过', error); } catch (e) {  }
     return false;
   }
 }
+
 export function initPlayerActionCleanup() {
   try {
     return bind();

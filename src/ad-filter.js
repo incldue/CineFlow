@@ -162,7 +162,7 @@ export function createAdFilteringLoader(Hls) {
   if (!BaseLoader || typeof BaseLoader !== 'function') return null;
 
   return class AdFilteringPlaylistLoader extends BaseLoader {
-    // eslint-disable-next-line no-useless-constructor
+
     constructor(config) {
       super(config);
       const originalLoad = this.load.bind(this);

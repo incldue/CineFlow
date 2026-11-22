@@ -1,4 +1,3 @@
-
 const STYLE_ID = 'cf-stage-seam';
 const ATTR = 'data-cf-seam';
 const VAR = '--cf3-seam-top';
@@ -95,8 +94,7 @@ export function initStageSeam() {
     raf = window.requestAnimationFrame(() => {
       raf = 0;
       const now = performance.now();
-      /* 120ms 去抖：滚动时 body 的 cf33-scroll 会反复翻转，
-         每次翻转都重量一遍没必要，但也不能漏掉真正的布局变化。 */
+
       if (now - lastRun < 120) {
         window.setTimeout(schedule, 130);
         return;
@@ -107,6 +105,7 @@ export function initStageSeam() {
   };
 
   schedule();
+
   for (const delay of [120, 420, 1200, 2600]) {
     window.setTimeout(() => {
       schedule();
@@ -125,14 +124,15 @@ export function initStageSeam() {
       if (shell) observer.observe(shell);
     }
   } catch {
-    /* ignore */
+
   }
 
   try {
     const observer = new MutationObserver(schedule);
+
     observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   } catch {
-    /* ignore */
+
   }
 
   window.__cf69StageSeamState = diag;

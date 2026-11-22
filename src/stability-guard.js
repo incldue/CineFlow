@@ -1,4 +1,3 @@
-
 const RAIL_SELECTOR = '.movie-rail';
 const MIN_CARDS_PER_RAIL = 6;
 const POLL_SIGNATURE = 'personalizedRail .movie-card:not([data-cf8-douban])';
@@ -9,7 +8,7 @@ function railsPopulated() {
     if (rails.length < 2) return false;
     let populated = 0;
     for (const rail of rails) {
-      // 搜索轨道允许为空，不参与判定
+
       if (rail.id === 'searchRail') continue;
       if (rail.querySelectorAll('.movie-card').length >= MIN_CARDS_PER_RAIL) populated += 1;
     }
@@ -35,16 +34,19 @@ function tameEmptyHomePolling() {
       if (!isTarget || tamed.has(handler)) return id;
 
       tamed.add(handler);
+
       originalClearInterval.call(window, id);
       const guarded = async function guardedPoll() {
         try {
           if (document.hidden) return undefined;
           if (railsPopulated()) return undefined;
         } catch (error) {
+
         }
         try {
           return await handler();
         } catch (error) {
+
         }
         return undefined;
       };
@@ -59,7 +61,7 @@ function tameEmptyHomePolling() {
   try {
     if (window.__cf32ExistingPollId) originalClearInterval.call(window, window.__cf32ExistingPollId);
   } catch (error) {
-    /* 忽略 */
+
   }
 
   return true;
@@ -85,7 +87,7 @@ function freezePopulatedRails() {
       try {
         const count = rail.querySelectorAll('.movie-card').length;
         if (count >= MIN_CARDS_PER_RAIL) {
-          // 有卡：记一份快照备查
+
           snapshots.set(rail, count);
           if (pending) {
             window.clearTimeout(pending);
@@ -94,22 +96,23 @@ function freezePopulatedRails() {
           return;
         }
         if ((snapshots.get(rail) || 0) < MIN_CARDS_PER_RAIL) return;
-        // 刚被清空：数据层通常会自己补回来。这里只做两件事 ——
-        // 先把轨道高度钉住（避免整页跳动），再在补回后立刻放开。
+
         if (pending) return;
         try {
           rail.classList.add('cf32-rail-restoring');
         } catch (error) {
-          /* 忽略 */
+
         }
         pending = window.setTimeout(() => {
           pending = null;
           try {
             rail.classList.remove('cf32-rail-restoring');
           } catch (error) {
+
           }
         }, 620);
       } catch (error) {
+
       }
     });
     observer.observe(rail, { childList: true });
@@ -120,7 +123,7 @@ function freezePopulatedRails() {
   try {
     new MutationObserver(scan).observe(root, { childList: true, subtree: true });
   } catch (error) {
-    /* 忽略 */
+
   }
 }
 
@@ -147,7 +150,7 @@ function makeClassListIdempotent() {
       }
       if (!changed && arguments.length) return undefined;
     } catch (error) {
-      /* 忽略，走原路径 */
+
     }
     return originalAdd.apply(this, arguments);
   };
@@ -163,7 +166,7 @@ function makeClassListIdempotent() {
       }
       if (!changed && arguments.length) return undefined;
     } catch (error) {
-      /* 忽略，走原路径 */
+
     }
     return originalRemove.apply(this, arguments);
   };
@@ -194,7 +197,7 @@ export function initStabilityGuard() {
       document.documentElement.dataset.cf32Guard = '1';
     }
   } catch (error) {
-    /* 忽略 */
+
   }
   return results;
 }

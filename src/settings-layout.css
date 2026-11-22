@@ -1,0 +1,30 @@
+.cf-settings-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin: 2px 0 0;
+}
+
+.cf-settings-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cf-settings-cell > .settings-label {
+  margin: 0;
+}
+
+.cf-settings-cell > select,
+.cf-settings-cell > .settings-input {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 560px) {
+  .cf-settings-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

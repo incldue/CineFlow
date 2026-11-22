@@ -1,4 +1,3 @@
-
 const SKELETON_SELECTOR = '.skeleton, .cf25-skeleton, .skeleton-detail, .cf25-skeleton-row';
 const FAST_WINDOW_MS = 100;
 const FAST_TTL_MS = 5 * 60 * 1000;
@@ -13,7 +12,6 @@ export function initProgressGate() {
   window.__cf34 = window.__cf34 || {};
   window.__cf34.gate = diag;
 
-  /** containerKey -> 过期时间戳。命中即跳过 100ms 延迟。 */
   const fastContainers = new Map();
   const pending = new WeakMap();
 
@@ -49,7 +47,7 @@ export function initProgressGate() {
     if (node.dataset.cf34Gate) return;
     const key = containerKeyOf(node);
     if (isFast(key)) {
-      // 已知秒回的容器：直接按「已显示」处理，不再走延迟
+
       node.dataset.cf34Gate = 'fast';
       return;
     }
@@ -59,7 +57,7 @@ export function initProgressGate() {
       key,
       startedAt: Date.now(),
       timer: window.setTimeout(() => {
-        // 100ms 后仍在文档里 → 这是一个真正慢的请求，记录为「非秒回」
+
         const entry = pending.get(node);
         if (!entry) return;
         pending.delete(node);
@@ -74,7 +72,7 @@ export function initProgressGate() {
     pending.delete(node);
     if (entry.timer) window.clearTimeout(entry.timer);
     if (Date.now() - entry.startedAt < FAST_WINDOW_MS) {
-      // 插入后 100ms 内就被移除 —— 这是个秒回容器，下次同容器不再等
+
       diag.suppressed += 1;
       markFast(entry.key);
     }
@@ -104,7 +102,6 @@ export function initProgressGate() {
     return false;
   }
 
-  // 已在 DOM 里的骨架屏按「已显示」处理，不参与秒回判定
   document.querySelectorAll(SKELETON_SELECTOR).forEach((node) => {
     node.dataset.cf34Gate = 'shown';
   });
