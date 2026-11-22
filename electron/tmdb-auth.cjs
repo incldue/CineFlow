@@ -1,9 +1,9 @@
 'use strict';
 
-
 const APPROVAL_BASE = 'https://www.themoviedb.org/auth/access';
 const API3_HOSTS = ['https://api.themoviedb.org/3'];
 const API4_HOSTS = ['https://api.tmdb.org/4', 'https://api.themoviedb.org/4'];
+
 const ACCESS_TOKEN_PATHS = ['/auth/access_token', '/authentication/access_token'];
 const POLL_INTERVAL_MS = 2500;
 const APPROVAL_TIMEOUT_MS = 6 * 60 * 1000;
@@ -72,7 +72,7 @@ function createTmdbAuthFlow(deps) {
       if (!result) continue;
       if (result.ok) return { ok: true, data: result.data };
       if (result.error) lastError = String(result.error);
-      // 401/403 在"等待批准"阶段是正常信号，交给上层继续轮询；换 host 没意义
+
       if (result.status && result.status !== 0) return { ok: false, status: result.status, error: lastError };
     }
     return { ok: false, error: lastError };
@@ -101,10 +101,12 @@ function createTmdbAuthFlow(deps) {
         result = await requestJson(API4_HOSTS, path, {
           method: 'POST',
           body: { request_token: flow.requestToken },
+
           apiKey: flow.apiKey,
         });
         if (!flow || flow.done) return;
         if (result.ok) break;
+
         if (result.status && result.status !== 401 && result.status !== 404) break;
       }
       if (result.ok) {
@@ -113,7 +115,7 @@ function createTmdbAuthFlow(deps) {
         fail('TMDB 返回的令牌是空的');
         return;
       }
-      // key 本身无效（status_code 7）时没必要把 6 分钟等完
+
       if (/invalid api key/i.test(String(result.error || ''))) {
         fail('这把 API Key 被 TMDB 判定无效，先回上一步换一把');
         return;

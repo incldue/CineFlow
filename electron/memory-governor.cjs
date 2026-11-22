@@ -19,7 +19,7 @@ function createMemoryGovernor({ log } = {}) {
     const candidates = [info.private, info.resident, info.shared];
     for (const value of candidates) {
       const n = Number(value);
-      if (Number.isFinite(n) && n > 0) return n * 1024; /* getProcessMemoryInfo 单位是 KB */
+      if (Number.isFinite(n) && n > 0) return n * 1024;
     }
     return 0;
   };
@@ -34,11 +34,12 @@ function createMemoryGovernor({ log } = {}) {
         if (!win || win.isDestroyed()) continue;
         const wc = win.webContents;
         if (!wc || wc.isDestroyed()) continue;
-        /* eslint-disable no-await-in-loop */
+
         const info = await wc.getProcessMemoryInfo().catch(() => null);
         rendererBytes = Math.max(rendererBytes, bytesOf(info));
       }
     } catch {
+
     }
     if (!rendererBytes && stats2.length) {
       for (const item of stats2) {
@@ -56,12 +57,12 @@ function createMemoryGovernor({ log } = {}) {
         if (!win || win.isDestroyed()) continue;
         const wc = win.webContents;
         if (!wc || wc.isDestroyed()) continue;
-        /* eslint-disable no-await-in-loop */
+
         const out = await wc.executeJavaScript(PURGE_JS, true).catch(() => null);
         if (out) done += 1;
       }
     } catch {
-      /* ignore */
+
     }
     if (done) {
       stats.purges += 1;
@@ -78,7 +79,7 @@ function createMemoryGovernor({ log } = {}) {
       stats.cacheClears += 1;
       say('Chromium 缓存与 DNS 缓存已清理（critical）');
     } catch {
-      /* ignore */
+
     }
   }
 
@@ -113,8 +114,7 @@ function createMemoryGovernor({ log } = {}) {
       } else if (level === 'critical') {
         stats.criticals += 1;
         await purgeRenderers('critical');
-        /* 只在"没人在看"的时候清磁盘/内存缓存：可见时清缓存会让海报重新下载，
-           反而是另一种卡顿。 */
+
         if (hiddenEverywhere(app)) await clearCaches(ses);
         warnStreak = 0;
       } else {
@@ -126,7 +126,7 @@ function createMemoryGovernor({ log } = {}) {
         lastLevel = level;
       }
     } catch {
-      /* ignore */
+
     }
   }
 

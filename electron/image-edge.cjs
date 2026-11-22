@@ -29,6 +29,7 @@ function systemResolve(host, timeoutMs) {
     }
   });
 }
+
 function probe(ip, host) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -56,7 +57,7 @@ function probe(ip, host) {
       });
       req.on('error', () => finish(-1));
       req.on('timeout', () => {
-        try { req.destroy(); } catch { /* ignore */ }
+        try { req.destroy(); } catch {  }
         finish(-1);
       });
       req.end();
@@ -71,6 +72,7 @@ async function pickImageEdge({ log, host, alsoTry } = {}) {
   const target = host || HOST;
   const started = Date.now();
   const resolved = await systemResolve(target, 1200);
+
   const extra = alsoTry ? [String(alsoTry)] : [];
   const candidates = [...new Set([...extra, ...resolved])].filter((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip));
   if (!candidates.length) {

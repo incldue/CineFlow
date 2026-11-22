@@ -3,12 +3,21 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const electron = require('electron');
-try { applySoftwareRasterSwitches(electron.app); } catch { /* ignore */ }
+try { applySoftwareRasterSwitches(electron.app); } catch {  }
+
+try {
+  require('./linux-gpu-guard.cjs').install({
+    app: electron.app,
+    userDataDir: electron.app.getPath('userData'),
+    log: (...args) => console.log('[CineFlow:Core]', ...args)
+  });
+} catch {  }
 
 const PRELOAD_PATH = path.join(__dirname, 'rec-preload.cjs');
 const INJECT_PATH = path.join(__dirname, 'rec-inject.js');
 const PREMIUM_INJECT_PATH = path.join(__dirname, 'premium-ui.js');
 const ENGINE_ENTRY = path.join(__dirname, 'rec-engine', 'dist', 'engine.js');
+
 function applySoftwareRasterSwitches(app) {
   try {
     if (process.env.CINEFLOW_KEEP_GPU === '1') return false;
@@ -25,6 +34,7 @@ function applySoftwareRasterSwitches(app) {
     return false;
   }
 }
+
 function installRasterTuner(app) {
   try {
     const { createRasterTuner } = require('./raster-tuner.cjs');
@@ -43,7 +53,7 @@ function installRasterTuner(app) {
     app.whenReady().then(() => {
       try {
         for (const win of electron.BrowserWindow.getAllWindows()) attach(win);
-      } catch { /* ignore */ }
+      } catch {  }
     }).catch(() => {});
     globalThis.__cfRasterTuner = tuner;
     return true;
@@ -52,6 +62,7 @@ function installRasterTuner(app) {
     return false;
   }
 }
+
 try {
   require('./settings-guard.cjs').backupSettings({ app: electron.app, log: (...a) => console.log('[CineFlow:Core]', ...a) });
 } catch (err) {
@@ -62,9 +73,10 @@ function recLog(...args) {
   try {
     console.log('[CineFlow:Rec]', ...args);
   } catch {
-    /* ignore */
+
   }
 }
+
 try {
   const defaultEnv = {
     CINEFLOW_TMDB_TIMEOUT_MS: '7000',
@@ -76,7 +88,7 @@ try {
   for (const [key, value] of Object.entries(defaultEnv)) {
     if (!process.env[key]) process.env[key] = value;
   }
-} catch { /* best-effort */ }
+} catch {  }
 
 const recEnabled = fs.existsSync(ENGINE_ENTRY);
 let corePromise = null;
@@ -119,6 +131,7 @@ function installSessionPreload() {
   const install = (session) => {
     if (installed || !session) return;
     try {
+
       if (typeof session.setPreloads !== 'function') {
         recLog('session.setPreloads 不可用, 推荐 UI 增强将停用');
         return;
@@ -140,20 +153,23 @@ function installSessionPreload() {
       recLog('defaultSession 预加载注入失败:', err && err.message);
     }
   });
+
   electron.app.on('web-contents-created', (_event, contents) => {
     if (contents.getType() !== 'window') return;
     contents.on('dom-ready', () => {
       try {
         install(contents.session);
       } catch {
-        /* ignore */
+
       }
+
       const src = readInjectSource();
       if (src) {
         contents
           .executeJavaScript(src, false)
           .catch(() => {});
       }
+
       const premiumSrc = readPremiumInjectSource();
       if (premiumSrc) {
         contents
@@ -174,8 +190,9 @@ if (recEnabled) {
 } else {
   recLog('未找到 rec-engine 产物, 推荐功能停用(应用行为与原版一致)');
 }
+
 const coreLog = (...args) => {
-  try { console.log('[CineFlow:Core]', ...args); } catch { /* ignore */ }
+  try { console.log('[CineFlow:Core]', ...args); } catch {  }
 };
 
 (async () => {
@@ -187,16 +204,18 @@ const coreLog = (...args) => {
       coreLog('Smart DoH 中继未启用（保持基线默认上游）:', err && err.message);
     }
   }
+
   try {
     const { createNetRescue } = require('./net-rescue.cjs');
     const mapHosts = ['api.themoviedb.org', 'api.tmdb.org', 'image.tmdb.org'];
     const bootRescue = createNetRescue({ log: coreLog, cacheFile: path.join(electron.app.getPath('userData'), 'ip-cache.json') });
     const found = await bootRescue.prefetchIps(mapHosts, 1500);
+
     if (!found['image.tmdb.org']) {
       try {
         const edge = await require('./image-edge.cjs').pickImageEdge({ log: coreLog, host: 'image.tmdb.org' });
         if (edge) found['image.tmdb.org'] = edge;
-      } catch { /* ignore */ }
+      } catch {  }
     }
     bootRescue.flushCache();
     const rules = Object.entries(found).map(([host, ip]) => `MAP ${host} ${ip}`).join(', ');
@@ -207,6 +226,7 @@ const coreLog = (...args) => {
   } catch (err) {
     coreLog('DNS 直连映射未启用:', err && err.message);
   }
+
   const PRECONNECT_HOSTS = ['https://image.tmdb.org', 'https://api.themoviedb.org', 'https://api.tmdb.org'];
   const PRECONNECT_JS = '(function(){try{var list=' + JSON.stringify(PRECONNECT_HOSTS) + ';' +
     'var head=document.head||document.documentElement;if(!head)return -1;' +
@@ -228,29 +248,31 @@ const coreLog = (...args) => {
         const run = () => {
           try {
             wc.executeJavaScript(PRECONNECT_JS, true).catch(() => {});
-          } catch { /* ignore */ }
+          } catch {  }
         };
         wc.on('dom-ready', run);
         run();
-      } catch { /* ignore */ }
+      } catch {  }
     };
     try {
       app.on('browser-window-created', (_event, win) => wire(win));
       app.whenReady().then(() => {
         try {
           for (const win of require('electron').BrowserWindow.getAllWindows()) wire(win);
-        } catch { /* ignore */ }
+        } catch {  }
       }).catch(() => {});
-    } catch { /* ignore */ }
+    } catch {  }
   }
+
   try {
     const governor = require('./memory-governor.cjs').createMemoryGovernor({ log: coreLog });
     electron.app.whenReady().then(() => {
-      try { governor.start(electron.app); } catch { /* ignore */ }
+      try { governor.start(electron.app); } catch {  }
     }).catch(() => {});
   } catch (err) {
     coreLog('内存总督未启用:', err && err.message);
   }
+
   try {
     const imageRoute = require('./image-route-rescue.cjs').createImageRouteRescue({ log: coreLog });
     electron.app.whenReady().then(() => {
@@ -259,14 +281,17 @@ const coreLog = (...args) => {
   } catch (err) {
     coreLog('图片直连抢救未启用:', err && err.message);
   }
-  try { installRasterTuner(electron.app); } catch { /* ignore */ }
-  try { installPreconnect(electron.app); } catch { /* ignore */ }
+
+  try { installRasterTuner(electron.app); } catch {  }
+  try { installPreconnect(electron.app); } catch {  }
+
   try {
     const { ipcMain } = electron;
     const userDataDir = electron.app.getPath('userData');
     const movy = require('./movy-sources.cjs').createMovySources({ log: coreLog, userDataDir, ipcMain });
     movy.registerIpc();
     electron.app.whenReady().then(() => {
+
       movy.prewarm();
     }).catch(() => {});
     electron.app.whenReady().then(() => {
@@ -275,6 +300,7 @@ const coreLog = (...args) => {
       } catch (err) { coreLog('Movy Referer 注入未启用:', err && err.message); }
     }).catch(() => {});
     require('./tmdb-logos.cjs').createTmdbLogos({ log: coreLog, userDataDir, ipcMain }).registerIpc();
+
     try {
       require('./movy-subtitle.cjs').createMovySubtitle({ log: coreLog, userDataDir, ipcMain }).register();
     } catch (err) { coreLog('字幕模块未启用:', err && err.message); }
@@ -283,6 +309,7 @@ const coreLog = (...args) => {
   }
 
   require('./main.cjs');
+
   try {
     const { createCredentialRescue } = require('./tmdb-credential-rescue.cjs');
     const rescueCred = createCredentialRescue({
@@ -301,6 +328,7 @@ const coreLog = (...args) => {
         },
         saveCredential: (value) => {
           const cleaner = String(value || '').trim();
+
           const fsp = require('node:fs');
           const pathMod = require('node:path');
           const file = pathMod.join(electron.app.getPath('userData'), 'settings.json');
@@ -319,6 +347,7 @@ const coreLog = (...args) => {
   } catch (err) {
     coreLog('TMDB 凭证兜底未启用:', err && err.message);
   }
+
   try {
     const { createNetRescue } = require('./net-rescue.cjs');
     const settingsFile = path.join(electron.app.getPath('userData'), 'settings.json');
@@ -333,7 +362,7 @@ const coreLog = (...args) => {
         if (!ses || !ses.__cfNetWarmDone) {
           if (ses) ses.__cfNetWarmDone = true;
           rescue.prefetchIps(['api.themoviedb.org', 'api.tmdb.org', 'image.tmdb.org'], 2600).then((found) => {
-            try { rescue.warmUp(['api.themoviedb.org', 'api.tmdb.org']); } catch { /* ignore */ }
+            try { rescue.warmUp(['api.themoviedb.org', 'api.tmdb.org']); } catch {  }
             const keys = Object.keys(found || {});
             if (keys.length) coreLog('已预热直连:', keys.join(', '));
           }).catch(() => {});
@@ -347,7 +376,8 @@ const coreLog = (...args) => {
       if (ses && !ses.fetch.__cfNetRescuePatch) {
         rescue.install(ses);
       }
-    } catch { /* ignore */ }
+    } catch {  }
+
     const reclaim = (tag) => {
       try {
         const ses = electron.session.defaultSession;
@@ -366,6 +396,7 @@ const coreLog = (...args) => {
   } catch (err) {
     coreLog('直连兜底模块加载失败:', err && err.message);
   }
+
 try {
   const serviceRegistry = require('./service-registry.cjs');
   const telemetry = require('./telemetry.cjs');
@@ -388,6 +419,36 @@ try {
     if (!result) throw new Error('installSourceEngine 返回 false');
     telemetry.record('service.installed', { id: 'source-engine' });
   }, { deps: ['source-compat'] });
+
+  serviceRegistry.registerService('remote-library', ({ ipcMain, session }) => {
+    const electron = require('electron');
+    const engineModule = require('./source-engine.cjs');
+    const remote = require('./remote-library.cjs').createRemoteLibrary({
+      log: (...args) => console.log('[CineFlow:RemoteLib]', ...args),
+      userDataDir: electron.app.getPath('userData'),
+      ipcMain,
+      session
+    });
+    remote.registerIpc();
+    remote.attachEngine(engineModule._internals);
+    engineModule.setRemoteBridge({
+      search: (source, payload, deadline) => remote.searchSource(source, payload, deadline),
+      test: (source) => remote.testRemote(source),
+      sources: (mode) => remote.sourceList(mode)
+    });
+    telemetry.record('service.installed', { id: 'remote-library' });
+  }, { deps: ['source-engine'] });
+
+  serviceRegistry.registerService('linux-gpu', ({ ipcMain }) => {
+    const electronModule = require('electron');
+    require('./linux-gpu-guard.cjs').registerIpc({
+      ipcMain,
+      app: electronModule.app,
+      userDataDir: electronModule.app.getPath('userData'),
+      log: (...args) => console.log('[CineFlow:Core]', ...args)
+    });
+    telemetry.record('service.installed', { id: 'linux-gpu' });
+  });
 
   serviceRegistry.registerService('ipc-contract', ({ ipcMain }) => {
     const result = require('./ipc-contract.cjs').installIpcContract(ipcMain);
@@ -420,6 +481,7 @@ try {
     if (!result) throw new Error('installSearchHub 返回 false');
     telemetry.record('service.installed', { id: 'search-hub' });
   }, { deps: ['source-engine'] });
+
   serviceRegistry.registerService('maintenance', () => {
     setInterval(() => {
       const removed = cacheLayer.sweepAll();
@@ -431,6 +493,7 @@ try {
       if (top) console.log('[CineFlow:Core] 遥测摘要', top);
     }, 10 * 60 * 1000).unref?.();
   }, { deps: ['diagnostics'] });
+
   const installResults = serviceRegistry.installServices({
     app: electron.app,
     ipcMain: electron.ipcMain,
@@ -442,6 +505,7 @@ try {
   }
 } catch (err) {
   console.error('[CineFlow:Core] 架构基建装配失败（基线行为不受影响）:', err && err.message);
+
   try {
     require('./source-compat.cjs').installSourceCompat({ app: electron.app, ipcMain: electron.ipcMain, session: electron.session });
     require('./source-engine.cjs').installSourceEngine({ ipcMain: electron.ipcMain, session: electron.session });

@@ -1,21 +1,16 @@
-/**
- * TF-IDF 向量化与持久化 —— 语义召回与冷启动的基础表示。
- * 产出 L2 归一化的行主序 Float32 矩阵(n × dim), 可直接替换为
- * bge-small 等 embedding 模型输出(dim 对应变化即可, 接口不变)。
- */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tokenize, itemText } from './tokenizer.js';
 import { readHeader, readTyped, writeHeader, typedBuffer } from '../store/binary.js';
 export function buildTfidf(items, maxVocab = 50_000) {
     const docs = items.map((it) => tokenize(itemText(it)));
-    // 文档频率
+
     const df = new Map();
     for (const doc of docs) {
         const seen = new Set(doc);
         for (const t of seen)
             df.set(t, (df.get(t) ?? 0) + 1);
     }
-    // 词表截断: 高 df 的词区分度低, 保留 df>=2 的前 maxVocab 个
+
     const vocabEntries = [...df.entries()]
         .filter(([, c]) => c >= 2 || docs.length < 50)
         .sort((a, b) => b[1] - a[1])
@@ -49,7 +44,7 @@ export function buildTfidf(items, maxVocab = 50_000) {
     }
     return { n: N, dim, vectors, vocab: vocabEntries.map(([t]) => t), idf };
 }
-/** 用词表 Map 加速的文本向量化(构建索引时建立 token→idx) */
+
 export class TfidfVectorizer {
     map;
     art;
@@ -81,7 +76,7 @@ export class TfidfVectorizer {
         return vec;
     }
 }
-const MAGIC = 'TFV2'; // v2: writeHeader 统一头; 旧格式文件 magic 不匹配将自动重建
+const MAGIC = 'TFV2';
 export function saveTfidf(a, basePath) {
     const vocabBuf = Buffer.from(JSON.stringify(a.vocab), 'utf8');
     const lenBuf = Buffer.alloc(4);
@@ -98,7 +93,7 @@ export function loadTfidf(basePath) {
     if (magic !== MAGIC)
         return null;
     const [n, dim] = fields;
-    const vocabLen = buf.readUInt32LE(12); // magic(4)+header(8) 之后
+    const vocabLen = buf.readUInt32LE(12);
     let off = 16;
     const vocab = JSON.parse(buf.subarray(off, off + vocabLen).toString('utf8'));
     off += vocabLen;

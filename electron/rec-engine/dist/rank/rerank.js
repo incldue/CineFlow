@@ -15,14 +15,10 @@ function isNewItem(item, now, cfg) {
     const ageDays = (now - Date.parse(item.releaseDate)) / 86_400_000;
     return ageDays >= 0 && ageDays < cfg.newItemAgeDays;
 }
-/**
- * 对融合后的候选列表做多样性重排, 返回排好序的完整列表(调用方分页)。
- * 同时保证: 同类型最多连续 maxConsecutiveSameGenre 个;
- * 每页(前 size 个)新片(近 newItemAgeDays)数量 ≥ newItemQuotaPerPage(候选足够时)。
- */
+
 export function rerank(fused, itemsById, cfg, now, size) {
     const λ = cfg.mmrLambda;
-    const pool = fused.slice(0, Math.max(size * 4, 60)); // 只重排头部, 控制复杂度
+    const pool = fused.slice(0, Math.max(size * 4, 60));
     const selected = [];
     const selectedGenres = [];
     const remaining = [...pool];
@@ -47,7 +43,7 @@ export function rerank(fused, itemsById, cfg, now, size) {
             }
             let val = λ * remaining[i].norm + (1 - λ) * div;
             if (tooManySameGenre(gs))
-                val -= 10; // 硬约束: 连续同类型重罚
+                val -= 10;
             if (val > bestVal) {
                 bestVal = val;
                 bestPos = i;
@@ -58,7 +54,7 @@ export function rerank(fused, itemsById, cfg, now, size) {
         const it = itemsById.get(picked.itemId);
         selectedGenres.push(it ? genreSet(it) : new Set(['unknown']));
     }
-    // 新片扶持配额: 前 size 里新片不足则从池尾部调换(新片已带 1.2/1.5 权重加成, 这里兜底)
+
     const newInHead = selected.slice(0, size).filter((f) => {
         const it = itemsById.get(f.itemId);
         return it ? isNewItem(it, now, cfg) : false;
@@ -70,7 +66,7 @@ export function rerank(fused, itemsById, cfg, now, size) {
             return it && isNewItem(it, now, cfg) && !selected.slice(0, size).includes(f);
         });
         for (let i = 0; i < need && i < newCandidates.length; i++) {
-            // 交换到第 3、8 位这类中前排位置
+
             const pos = Math.min(size - 1, 3 + i * 5);
             const victimPos = selected.findIndex((f, idx) => idx >= pos && !isNew(itemsById.get(f.itemId), now, cfg));
             if (victimPos >= 0) {

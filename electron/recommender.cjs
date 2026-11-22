@@ -8,7 +8,7 @@ const { genreNamesFromIds } = require('./rec-genres.cjs');
 const USER_ID = 'cineflow-local';
 const REBUILD_EVENT_THRESHOLD = 150;
 const REBUILD_MIN_INTERVAL_MS = 30 * 60 * 1000;
-const FINISHED_RATIO = 0.96; // 与 src/history-page.js 的已看完判定一致
+const FINISHED_RATIO = 0.96;
 
 const TRACK_TYPE_MAP = {
   click: 'click',
@@ -56,7 +56,7 @@ function mergeItemMeta(prev, next) {
   const prevExtra = prev.extra || {};
   const nextExtra = next.extra || {};
   merged.extra = { ...prevExtra, ...nextExtra };
-  // extra 里空值/占位不要覆盖旧值
+
   for (const [key, value] of Object.entries(merged.extra)) {
     if (value === undefined || value === null || value === '') {
       if (prevExtra[key] !== undefined) merged.extra[key] = prevExtra[key];
@@ -68,7 +68,6 @@ function mergeItemMeta(prev, next) {
   return merged;
 }
 
-/** CineFlow 卡片（TMDB compactMovie 形状或豆瓣 cf8 条目）→ 引擎 ItemMeta */
 function cardToItemMeta(card) {
   if (!card || card.id === undefined || card.id === null) return null;
   const isDouban = Boolean(card.cf8Douban);
@@ -78,8 +77,6 @@ function cardToItemMeta(card) {
     : contentKeyOf(mediaType, card.id);
   if (!String(id).trim()) return null;
 
-  // 类型名是引擎标签路/画像/重排的主信号。列表与详情卡片多数只带数字 genreIds,
-  // 这里按 mediaType 还原成中文类型名（与 TMDB zh-CN 名称一致），与 onboarding 兴趣名对齐。
   const rawGenres = Array.isArray(card.genres) ? card.genres.filter((g) => typeof g === 'string' && g) : [];
   const genres = mergeGenres(rawGenres, genreNamesFromIds(card.genreIds, mediaType));
   const extra = {};
@@ -106,7 +103,6 @@ function cardToItemMeta(card) {
   };
 }
 
-/** 引擎 ItemMeta → CineFlow 卡片（豆瓣条目 v1 不输出，返回 null 由调用方过滤） */
 function itemToCard(meta) {
   if (!meta || typeof meta.id !== 'string') return null;
   if (meta.id.startsWith('douban:')) return null;
@@ -157,13 +153,14 @@ function initEngineResilient(engine, log) {
 
 async function createRecommenderCore({ dataDir, engineEntry, configPath, log = () => {} } = {}) {
   const entry = asarReal(engineEntry || path.join(__dirname, 'rec-engine', 'dist', 'engine.js'));
-  // Windows 绝对路径必须转 file:// URL, 否则 ESM loader 报 ERR_UNSUPPORTED_ESM_URL_SCHEME
+
   const { RecEngine } = await import(pathToFileURL(entry).href);
   const engine = initEngineResilient(
     new RecEngine(dataDir, configPath ? asarReal(configPath) : undefined),
     log
   );
   const state = { eventsSinceRebuild: 0, lastRebuildAt: Date.now() };
+
   const CATALOG_SCHEMA_VERSION = 2;
   const schemaPath = path.join(dataDir, 'catalog-schema.json');
 
@@ -206,7 +203,7 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
     let stats = { items: 0, repaired: 0 };
     try {
       stats = repairCatalogGenres();
-      // 类型名参与 TF-IDF 文本与标签向量，物料语义变了必须重建工件
+
       engine.rebuild();
     } catch (err) {
       log('存量物料迁移失败(下次启动重试):', err && err.message);
@@ -232,12 +229,11 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
   function upsertCards(cards) {
     const metas = (cards || []).map(cardToItemMeta).filter(Boolean);
     if (!metas.length) return 0;
-    // 引擎 upsertItems 是整对象覆盖：点击态薄卡片会抹掉 seed 阶段写入的类型/简介。
-    // 在宿主侧先与现有物料做字段级合并，再交给引擎落盘，基线引擎代码保持不动。
+
     let existing = new Map();
     try {
       existing = new Map((engine.catalog || []).map((it) => [it.id, it]));
-    } catch { /* 目录读取失败时退化为直接写入 */ }
+    } catch {  }
     const merged = metas.map((meta) => mergeItemMeta(existing.get(meta.id), meta));
     engine.upsertItems(merged);
     return merged.length;
@@ -264,7 +260,6 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
     engine,
     upsertCards,
 
-    /** 行为事件: [{ key, type, value, ts, card? }] */
     track(events = []) {
       upsertCards(events.filter((e) => e && e.card).map((e) => e.card));
       const mapped = (events || [])
@@ -282,7 +277,6 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
       return { accepted: mapped.length };
     },
 
-    /** 首次运行: 把 CineFlow 既有偏好/历史迁移为引擎事件 */
     seed({ prefs = {}, history = [], genreNames = {}, cards = [] } = {}) {
       const events = [];
       const now = Date.now();
@@ -301,8 +295,7 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
         if (!fav || fav.id === undefined) continue;
         pushCard({
           ...fav,
-          // favorites 快照只有 genreIds(数字)：先按渲染层给的 genreNames 映射，
-          // 缺表项（未配置 TMDB 密钥时 genres 接口拿不到）回退到宿主的本地类型表。
+
           genres: mergeGenres(
             (fav.genreIds || []).map((gid) => genreNames[gid] || genreNames[String(gid)]).filter(Boolean),
             genreNamesFromIds(fav.genreIds, fav.mediaType === 'tv' ? 'tv' : 'movie')
@@ -326,7 +319,7 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
           posterPath: item.posterPath,
           year: item.year,
           voteAverage: 0,
-          // 历史快照若带 genreIds（新版本会写入），一并喂给类型管线
+
           genreIds: Array.isArray(item.genreIds) ? item.genreIds : [],
           genres: Array.isArray(item.genres) ? item.genres : [],
         });
@@ -339,11 +332,10 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
       }
 
       upsertCards(seedCards);
-      // 引擎事件字段是 itemId(非 key), 映射后上报
+
       engine.track(events.map((e) => ({ userId: USER_ID, itemId: String(e.key), type: e.type, ts: e.ts })));
       state.eventsSinceRebuild += events.length;
 
-      // onboarding 兴趣: genreWeights top3 → 类型名
       const genreWeights = prefs.genreWeights || {};
       const topGenres = Object.entries(genreWeights)
         .sort((a, b) => Number(b[1]) - Number(a[1]))
@@ -362,7 +354,6 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
       return { events: events.length, items: seedCards.length, onboarding: topGenres };
     },
 
-    /** 首页推荐 → CineFlow 卡片列表 */
     async home({ size = 24, page = 1 } = {}) {
       const resp = await engine.recommend({ userId: USER_ID, scene: 'home', size, page });
       const cards = (resp.items || [])
@@ -377,7 +368,6 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
       };
     },
 
-    /** 详情页相似推荐 */
     async similar(itemId, { size = 12 } = {}) {
       const items = await engine.similarItems(String(itemId), size);
       return {
@@ -407,7 +397,7 @@ async function createRecommenderCore({ dataDir, engineEntry, configPath, log = (
 function registerRecIpc({ ipcMain, corePromise, log = () => {} }) {
   const wrap = (fn) => async (_event, ...args) => {
     const core = await corePromise;
-    if (!core) return null; // 引擎停用 → 渲染层走原生回退
+    if (!core) return null;
     try {
       return await fn(core, ...args);
     } catch (err) {
@@ -424,7 +414,6 @@ function registerRecIpc({ ipcMain, corePromise, log = () => {} }) {
   ipcMain.handle('rec:rebuild', wrap((core) => core.rebuild()));
 }
 
-/** bootstrap 入口: 返回 corePromise(失败 resolve null = 引擎停用) */
 async function initRecommender({ app, ipcMain, log = console.log } = {}) {
   const corePromise = (async () => {
     if (!app || !ipcMain) return null;

@@ -1,8 +1,10 @@
 'use strict';
+
 const fs = require('node:fs');
 const path = require('node:path');
 
 const IMAGE_HOSTS = ['image.tmdb.org', 'static-1.themoviedb.org', 'media.themoviedb.org'];
+
 function parseResolverRules(text) {
   const pinned = {};
   const raw = String(text || '');
@@ -26,7 +28,7 @@ function readPinned(file, app) {
       if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(String(ip))) pinned[host] = String(ip);
     }
   } catch {
-    /* ignore */
+
   }
   return pinned;
 }
@@ -40,6 +42,7 @@ function createImageRouteRescue({ log } = {}) {
     if (!ses) return false;
     try {
       ses.webRequest.onBeforeRequest({ urls: IMAGE_HOSTS.map((host) => `https://${host}/*`) }, (details, callback) => {
+
         callback({});
       });
       applied += 1;
@@ -67,9 +70,10 @@ function createImageRouteRescue({ log } = {}) {
     installed = apply(ses);
     if (!installed) return false;
     say('图片直连已接管:', Object.entries(pinned).map(([h, ip]) => h + '=' + ip).join(', '));
+
     for (const delay of [900, 2200, 5000]) {
       const timer = setTimeout(() => {
-        try { apply(ses); } catch { /* ignore */ }
+        try { apply(ses); } catch {  }
       }, delay);
       if (typeof timer.unref === 'function') timer.unref();
     }

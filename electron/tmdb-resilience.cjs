@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const telemetry = require('./telemetry.cjs');
 
-const logFn = (...args) => { try { console.log('[CineFlow:Core]', ...args); } catch { /* ignore */ } };
+const logFn = (...args) => { try { console.log('[CineFlow:Core]', ...args); } catch {  } };
 
 const TMDB_API_HOST = 'api.themoviedb.org';
 const OFFICIAL_ALIAS = 'https://api.tmdb.org';
@@ -15,12 +15,13 @@ const MIRROR_TIMEOUT_MS = 6000;
 const state = {
   installed: false,
   session: null,
-  downstream: null,          
-  stickyOrigin: '',         
+  downstream: null,
+  stickyOrigin: '',
   unhealthyAt: 0,
-  mirrors: [],       
+  mirrors: [],
   registryPath: '',
-  active: false,      
+  active: false,
+
   defaultFails: 0
 };
 
@@ -41,7 +42,7 @@ function loadUserMirrors(app) {
         if (/^https?:\/\//i.test(value)) mirrors.add(value);
       }
     }
-  } catch { /* ignore */ }
+  } catch {  }
   mirrors.add(OFFICIAL_ALIAS);
   state.mirrors = [...mirrors];
 }
@@ -56,7 +57,6 @@ function isTmdbApiGet(input) {
   }
 }
 
-/** sticky 端点改写：api.themoviedb.org/3/x?y → {origin}/3/x?y */
 function rewriteToOrigin(url, origin) {
   if (!origin) return url.toString();
   const out = new URL(url.toString());
@@ -71,7 +71,7 @@ async function probeOrigin(origin) {
   try {
     const probeUrl = rewriteToOrigin(`https://${TMDB_API_HOST}${PROBE_PATH}`, origin);
     const response = await state.downstream(probeUrl, { method: 'GET', cache: 'no-store' });
-    // 有 HTTP 响应即视为端点可达（401 = 未带凭证但网络通）
+
     return response.status > 0 && response.status < 600 && response.status !== 0;
   } catch {
     return false;
@@ -90,9 +90,8 @@ async function ensureHealthyOrigin(origin) {
   return ok;
 }
 
-/** TMDB GET 请求的韧性流程（含 sticky / 下层链路 / 镜像回退）——独立导出以便单测 */
 async function tmdbFetchWithFailover(url, init) {
-  // 被动模式：默认零干预（网络行为与 3.4.4 完全一致）
+
   if (!state.active) {
     try {
       const response = await state.downstream(url, init);
@@ -105,15 +104,13 @@ async function tmdbFetchWithFailover(url, init) {
     }
   }
 
-  // 已激活：sticky 直连记忆端点
   if (state.stickyOrigin) {
     try {
       const response = await state.downstream(rewriteToOrigin(url, state.stickyOrigin), init);
       if (response.ok) return response;
-    } catch { /* 落入回退 */ }
+    } catch {  }
   }
 
-  // 下层既有链路（meta-server DoH 直连）
   try {
     const response = await state.downstream(url, init);
     if (response.ok) {
@@ -124,7 +121,7 @@ async function tmdbFetchWithFailover(url, init) {
     telemetry.record('tmdb.upstream.bad', { status: response.status });
     throw new Error(`upstream ${response.status}`);
   } catch (baselineError) {
-    // 端点回退：官方别名 + 用户镜像（每个 6s 上限）
+
     for (const origin of state.mirrors) {
       const mirrorOrigin = new URL(origin).origin;
       if (mirrorOrigin === new URL(url instanceof URL ? url : String(url)).origin) continue;
@@ -136,9 +133,9 @@ async function tmdbFetchWithFailover(url, init) {
           telemetry.record('tmdb.mirror.served', { origin: state.stickyOrigin, path: url.pathname });
           return response;
         }
-      } catch { /* 尝试下一个端点 */ }
+      } catch {  }
     }
-    // 镜像也全军覆没 → 回到被动（不做无谓开销）
+
     state.active = false;
     state.defaultFails = 0;
     telemetry.record('tmdb.resilience.deactivated', { reason: 'mirrors dead' });
@@ -154,7 +151,7 @@ function installTmdbResilience({ app, session }) {
 
   const installPatch = () => {
     try {
-      state.downstream = session.defaultSession.fetch;   // 下层链（此时 meta-server 已包装完毕）
+      state.downstream = session.defaultSession.fetch;
       session.defaultSession.fetch = async function tmdbResilientFetch(input, init) {
         const url = isTmdbApiGet(input);
         const method = String(init?.method || (typeof input === 'object' && input?.method) || 'GET').toUpperCase();
@@ -169,12 +166,10 @@ function installTmdbResilience({ app, session }) {
     }
   };
 
-  // ready+600ms 安装：确保落在 meta-server wrapper 之上（其 listen 回调在 ready 后数毫秒内完成）
   (app.isReady() ? Promise.resolve() : app.whenReady())
     .then(() => setTimeout(installPatch, 600))
     .catch(() => {});
 
-  // 被动 watchdog：默认链路连续失败 ≥2 次 → 探测镜像 → 可用才激活
   setInterval(() => {
     if (!state.downstream) return;
     if (state.active) {
@@ -192,7 +187,7 @@ function installTmdbResilience({ app, session }) {
       if (defaultOk) { state.defaultFails = 0; return; }
       state.defaultFails += 1;
       if (state.defaultFails < DEFAULT_FAIL_THRESHOLD) return;
-      // 默认链路确认死亡 → 找一个活镜像
+
       (async () => {
         for (const origin of state.mirrors) {
           const mirrorOrigin = new URL(origin).origin;
@@ -204,7 +199,7 @@ function installTmdbResilience({ app, session }) {
             return;
           }
         }
-        state.defaultFails = 0;   
+        state.defaultFails = 0;
       })().catch(() => {});
     }).catch(() => {});
   }, PROBE_INTERVAL_MS).unref?.();

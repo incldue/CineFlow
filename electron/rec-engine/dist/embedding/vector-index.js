@@ -20,9 +20,9 @@ export class BruteForceIndex {
             const base = i * this.dim;
             for (let d = 0; d < this.dim; d++)
                 dot += query[d] * this.vecs[base + d];
-            scores[i] = dot / qnorm; // 物料向量已 L2 归一化, 只需除查询范数
+            scores[i] = dot / qnorm;
         }
-        // 有界选择: 维护 topN 的最小堆等价实现(直接插入排序式, topN 小)
+
         const top = [];
         for (let i = 0; i < this.n; i++) {
             if (exclude?.has(i))

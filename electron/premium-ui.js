@@ -1,9 +1,9 @@
-
 (() => {
   if (window.__cfPremiumV1) return;
   window.__cfPremiumV1 = true;
-  const log = (...a) => { try { console.debug('[CineFlow:Premium]', ...a); } catch { /* noop */ } };
+  const log = (...a) => { try { console.debug('[CineFlow:Premium]', ...a); } catch {  } };
   const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || document.body.classList.contains('is-motion-throttled');
+
   try {
     const style = document.createElement('style');
     style.id = 'cf-premium-style';
@@ -86,7 +86,7 @@
       .cf9-toast.is-visible { opacity: 1; transform: translateX(-50%); }
     `;
     (document.head || document.documentElement).appendChild(style);
-  } catch { /* noop */ }
+  } catch {  }
 
   document.addEventListener('load', (event) => {
     const img = event.target;
@@ -106,11 +106,13 @@
     new MutationObserver(() => markLoaded(app)).observe(app, { childList: true, subtree: true });
   };
   armPosterFade();
+
   const armHero = () => {
     const hero = document.getElementById('heroSection');
     const backdrop = document.getElementById('heroBackdrop');
     const title = document.getElementById('dailyTitle');
     if (!hero || !backdrop || !title) { setTimeout(armHero, 800); return; }
+
     let crossfade = hero.querySelector('.cf9-hero-crossfade');
     if (!crossfade) {
       crossfade = document.createElement('div');
@@ -124,12 +126,11 @@
       if (!reducedMotion()) {
         crossfade.style.backgroundImage = lastBackdropUrl;
         crossfade.classList.remove('is-fading');
-        crossfade.classList.add('is-fading');           // 旧图淡出，新图随基线赋值直接呈现
+        crossfade.classList.add('is-fading');
       }
       lastBackdropUrl = next;
     }).observe(backdrop, { attributes: true, attributeFilter: ['style'] });
 
-    // 标题分行动画（文本变化时重排词组）
     let lastTitle = '';
     const animateTitle = () => {
       const text = title.textContent?.trim() || '';
@@ -152,6 +153,7 @@
     log('英雄区沉浸化已装配');
   };
   armHero();
+
   const decorateRail = (rail) => {
     if (!(rail instanceof HTMLElement) || rail.dataset.cf9Rail === '1') return;
     const host = rail.parentElement;
@@ -193,6 +195,7 @@
     new MutationObserver(scan).observe(app, { childList: true, subtree: true });
   };
   armRails();
+
   const HISTORY_KEY = 'cineflow:history:v3';
   const readHistory = () => {
     try {
@@ -241,6 +244,7 @@
   window.addEventListener('storage', (event) => {
     if (event.key === HISTORY_KEY) syncCardProgress();
   });
+
   const SPEEDS = [1, 1.25, 1.5, 2, 3, 0.75];
   const getVideo = () => document.getElementById('resourcePlayer');
   const activeEpisodeButton = () => document.querySelector('#playerEpisodeList .player-episode-button.is-active');
@@ -257,6 +261,7 @@
     if (!veil || !stage.contains(veil)) {
       veil = document.createElement('div');
       veil.className = 'cf9-switch-veil';
+
       stage.insertBefore(veil, stage.firstChild);
     }
     return veil;
@@ -266,6 +271,7 @@
     document.getElementById('playerStage')?.classList.remove('cf9-switching');
   };
   const dropVeil = () => {
+
     clearTimeout(veilTimer);
     veilTimer = setTimeout(liftVeil, 2600);
   };
@@ -341,6 +347,7 @@
     actions.prepend(nextButton, pipButton, speedButton);
 
     ensureVeil();
+
     video.addEventListener('loadstart', () => {
       document.getElementById('playerStage')?.classList.add('cf9-switching');
       dropVeil();
@@ -350,6 +357,7 @@
     }
     video.addEventListener('error', () => {
       liftVeil();
+
       setTimeout(() => {
         const message = document.querySelector('#playerError span')?.textContent?.trim();
         if (message && document.querySelector('.player-stage.has-error')) {
@@ -361,6 +369,7 @@
       if (!reducedMotion()) showNextUp();
       else nextEpisodeButton()?.click();
     });
+
     document.getElementById('playerEpisodeList')?.addEventListener('click', hideNextUp);
     log('播放器体验包已装配（倍速/画中画/下一集/自动连播/黑场过渡）');
   };
@@ -378,7 +387,7 @@
       toastNode.classList.add('is-visible');
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => toastNode?.classList.remove('is-visible'), 4200);
-    } catch { /* noop */ }
+    } catch {  }
   };
   const armPlayer = () => {
     const app = document.getElementById('app');

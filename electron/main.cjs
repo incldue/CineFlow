@@ -8,14 +8,14 @@ const { createDohResolver } = require('./doh.cjs');
 const { createMetaServer } = require('./meta-server.cjs');
 const { createPlaybackProxyGuard } = require('./proxy-monitor.cjs');
 const { filterAdsFromM3u8 } = require('./ad-filter.cjs');
-const { createCastController } = require('./cast.cjs'); // v3.4.0 投屏（纯增量模块）
+const { createCastController } = require('./cast.cjs');
 
 try {
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
   app.commandLine.appendSwitch('enable-gpu-rasterization');
   app.commandLine.appendSwitch('enable-zero-copy');
 } catch {
-  // Hardware acceleration hints are best-effort.
+
 }
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -142,13 +142,12 @@ function initNetworkAcceleration() {
       getCredential
     });
     metaServer.install().catch(() => {});
-    // v3.4.0：启动即探测 DoH 端点在当前网络下是否可达，并顺带预热海报域名解析；
-    // 不可达时 meta-server / proxy-monitor 会自动放弃接管，回退原生网络栈。
+
     setTimeout(() => {
       try {
         dohResolver?.ping?.();
       } catch {
-        // best-effort
+
       }
     }, 800);
     playbackProxyGuard = createPlaybackProxyGuard({
@@ -168,13 +167,13 @@ function initNetworkAcceleration() {
         try {
           mainWindow?.webContents?.send(channel, payload);
         } catch {
-          // window may be closed
+
         }
       }
     });
     playbackProxyGuard.start();
   } catch {
-    // network acceleration is best-effort; the original request path keeps working
+
   }
 }
 
@@ -235,7 +234,6 @@ function applyWindowShape(mode = windowMode, bounds = null) {
       return;
     }
 
-
     if (mode === 'island-docked') {
       mainWindow.setShape(roundedRectShape(0, 0, currentBounds.width, currentBounds.height, 22));
       return;
@@ -243,8 +241,7 @@ function applyWindowShape(mode = windowMode, bounds = null) {
 
     mainWindow.setShape(roundedRectShape(0, 0, currentBounds.width, currentBounds.height, NORMAL_WINDOW_RADIUS));
   } catch {
-    // setShape is experimental; if it is unavailable or rejected on a platform,
-    // keep the transparent-window CSS fallback instead of interrupting the app.
+
   }
 }
 
@@ -646,7 +643,6 @@ function writeSettings(nextSettings) {
   }
 }
 
-
 function normalizeProxy(raw) {
   const value = String(raw || '').trim();
   if (!value) return '';
@@ -950,16 +946,14 @@ function touchResourceConfig(settings = readSettings()) {
 function isTvBoxSiteEntry(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   if (!String(value.api || '').trim()) return false;
-  // TVBox 站点的决定性特征是 type 字段；普通 {name, api} 条目没有 type，不能误判
+
   return value.type !== undefined;
 }
 
 function tvBoxSiteToSourceEntry(site) {
   const api = String(site.api || '').trim();
   if (!/^https?:\/\//i.test(api) || /^csp_/i.test(api)) return null;
-  // 只有 type=1（JSON / 苹果 CMS 风格接口）能直接用；
-  // csp_*/jar/spider 需要 TVBox 解析引擎，xml（type=0）不是 JSON，一律跳过；
-  // 没写 type 的条目按普通源放行，避免丢数据
+
   const type = site.type === undefined ? '' : String(site.type).trim();
   if (type !== '' && type !== '1') return null;
   return { name: site.name || site.key || '', api };
@@ -968,7 +962,7 @@ function tvBoxSiteToSourceEntry(site) {
 function extractTvBoxSites(raw) {
   const sites = Array.isArray(raw) ? raw : raw?.sites;
   if (!Array.isArray(sites) || !sites.length) return null;
-  // 至少有一条像 TVBox 站点才按 TVBox 解析，避免误伤普通数组
+
   if (!sites.some(isTvBoxSiteEntry)) return null;
   const entries = sites.map(tvBoxSiteToSourceEntry).filter(Boolean);
   if (!entries.length) {
@@ -1777,8 +1771,6 @@ async function proxyMediaRequest(req, res) {
 
   await applyProxySetting().catch(() => {});
 
-  // Playback upstream fast-path: used when the user opted out of proxy for
-  // playback, or when the proxy-monitor detected an upstream proxy outage.
   if (playbackProxyGuard && playbackProxyGuard.shouldUseDirectUpstream()) {
     const handledDirectUpstream = await playbackProxyGuard
       .handleDirectUpstream(req, res, targetUrl)
@@ -2026,7 +2018,7 @@ async function hydrateResourceDetail(source, item) {
       const detailItem = Array.isArray(detail?.list) ? detail.list[0] : null;
       if (detailItem) return detailItem;
     } catch {
-      // fall through to the other detail probe
+
     }
     return null;
   });
@@ -2037,7 +2029,7 @@ async function hydrateResourceDetail(source, item) {
     })));
     if (detailItem) return { ...item, ...detailItem };
   } catch {
-    // both probes failed or returned empty
+
   }
   return item;
 }
@@ -2060,7 +2052,7 @@ async function searchResourceSource(source, payload = {}) {
         if (compact) return compact;
       }
     } catch {
-      // Resource sources are optional and unstable; failed sources are skipped.
+
     }
   }
   return null;
@@ -2285,8 +2277,6 @@ app.whenReady().then(() => {
   initNetworkAcceleration();
   applyProxySetting({ force: true }).catch(() => {});
 
-  // v3.4.0 投屏（纯增量）：Web Bluetooth 设备选择回调只用于回捞"实时发现的设备名"给投屏面板，
-  // 一律回调空字符串，绝不主动连接任何设备。
   try {
     session.defaultSession.on('select-bluetooth-device', (event, discoveryEvent) => {
       try {
@@ -2294,11 +2284,11 @@ app.whenReady().then(() => {
         castController.publishBluetoothDiscovered(discoveryEvent?.devices || []);
         event.callback('');
       } catch {
-        // Web Bluetooth 不可用时忽略
+
       }
     });
   } catch {
-    // 旧版本无该事件时忽略
+
   }
 
   app.on('activate', () => {
@@ -2341,7 +2331,6 @@ ipcMain.handle('app:clearCredential', () => {
   clearTmdbCaches();
   return publicCredentialState();
 });
-
 
 ipcMain.handle('app:saveProxy', async (_event, proxy) => {
   const settings = readSettings();
@@ -2508,9 +2497,9 @@ ipcMain.handle('tmdb:discover', async (_event, options = {}) => {
     'vote_count.gte': options.minVotes || 80,
     'vote_average.gte': options.minRating || undefined,
     include_adult: false,
-    // v3.4.0 纯增量：分类片库按年份筛选；未传 options.year 时与既有行为完全一致
+
     primary_release_year: options.year || undefined,
-    // v3.4.0 纯增量：分类片库"2000~"这类上界年份档；未传 options.yearTo 时行为不变
+
     'primary_release_date.lte': options.yearTo || undefined,
     page: options.page || 1,
     region: DEFAULT_REGION
@@ -2522,7 +2511,7 @@ ipcMain.handle('tmdb:discover', async (_event, options = {}) => {
     'vote_count.gte': options.minVotes || 80,
     'vote_average.gte': options.minRating || undefined,
     include_adult: false,
-    // v3.4.0 纯增量：节目按首播年份筛选，同上一处、未传时行为不变
+
     first_air_date_year: options.year || undefined,
     'first_air_date.lte': options.yearTo || undefined,
     page: options.page || 1
@@ -2671,9 +2660,6 @@ function compactVideos(videos = []) {
     }));
 }
 
-/* ================= v3.4.0 投屏（纯增量） =================
-   新增 electron/cast.cjs：SSDP 发现 DLNA MediaRenderer + 本机蓝牙只读枚举。
-   以下通道全部 try/catch 包裹，失败只让投屏面板为空，不影响既有播放链路。 */
 const castController = createCastController({
   isWin32: process.platform === 'win32',
   getSender: () => mainWindow,
@@ -2710,12 +2696,6 @@ ipcMain.handle('cast:stop', async (_event, payload = {}) => {
   }
 });
 
-
-/* ================= v3.4.0 海报兜底（纯增量） =================
-   渲染端 <img> 直连失败时（直连模式 DNS 污染、或图片重定向尚未注册），
-   由主进程复用 meta-server 的 DoH 取字节通道回传 data URL。
-   只读复用既有能力，不改动任何原有请求链路。
-*/
 const RELAY_IMAGE_HOSTS = new Set(['image.tmdb.org', 'static-1.themoviedb.org', 'media.themoviedb.org']);
 const RELAY_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -2751,12 +2731,6 @@ ipcMain.handle('image:relay', async (_event, payload = {}) => {
   }
 });
 
-/* ================= v3.4.0 片源手动测速（纯增量） =================
-   渲染端"片源管理"面板点一下就能量一个源的接口往返。
-   只复用既有能力：buildResourceUrl 拼地址、applyProxySetting 取当前代理、
-   defaultSession.fetch 发请求（与 resourceFetchJson 同一条通道，量出来的才是真实手感）。
-   刻意不走 resourceResponseCache —— 命中缓存的第二次测速会报出 ~0ms 的假速度。
-*/
 ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
   const key = String(payload?.key || '');
   const apiValue = String(payload?.api || '');
@@ -2767,7 +2741,7 @@ ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
 
   let url;
   try {
-    // ac=list 是苹果CMS系的类别接口，正文只有几 KB，适合当连通性探针
+
     url = buildResourceUrl(source, { ac: 'list' });
   } catch {
     return { ok: false, error: '源地址不合法' };
@@ -2805,12 +2779,6 @@ ipcMain.handle('resources:testSource', async (_event, payload = {}) => {
   }
 });
 
-/* ================= v3.4.1 TMDB 应用内凭证向导（纯增量） =================
-   只做 TMDB 官方的 v4 授权流：申请 request token → 用户在浏览器里点批准 →
-   换 Read Access Token → 走既有 app:saveCredential 同一份写入链路存进本机。
-   不注册账号、不过 CAPTCHA、不碰开发者表格审批。
-   没有 v3 Key 时直接回 NEED_API_KEY，由渲染层改走"打开申请页 + 剪贴板自动识别"引导。
-*/
 const { createTmdbAuthFlow, classifyCredential: classifyTmdbCredential } = require('./tmdb-auth.cjs');
 const { clipboard: tmdbClipboard } = require('electron');
 
@@ -2868,8 +2836,6 @@ ipcMain.handle('tmdbAuth:start', async () => tmdbAuth.start().then((result) => (
 ipcMain.handle('tmdbAuth:status', () => tmdbAuth.snapshot());
 ipcMain.handle('tmdbAuth:cancel', () => tmdbAuth.cancel());
 
-// 引导路径用：用户在 TMDB 页面复制密钥后回到应用，渲染层轮询这里，识别到就自动填入保存。
-// 只在向导处于"等粘贴"阶段被调用，平时不读剪贴板。
 ipcMain.handle('tmdbAuth:clipboard', () => {
   let text = '';
   try { text = tmdbClipboard.readText() || ''; } catch { return { found: false }; }
@@ -2883,11 +2849,6 @@ ipcMain.handle('tmdbAuth:clipboard', () => {
   return { found: true, type: normalized.type, state: publicCredentialState() };
 });
 
-/* ---- v3.4.2 增补：剪贴板凭证"先校验再落盘"（纯增量，上面那个 handler 原样保留） ----
-   原来的 tmdbAuth:clipboard 只做格式匹配：32 位十六进制就算命中，于是剪贴板里任意一段
-   MD5/序列号都会被当成 API Key 写进 settings.json，徽标显示"API Key"但首页照样全空。
-   这里多走一步 GET /3/configuration 真校验：401 直接回报"无效/已吊销"，不落盘。
-   同一段粘贴内容只校验一次，避免引导期 800ms 一轮把 TMDB 打成限流。 */
 let tmdbGrabReject = { value: '', error: '' };
 
 async function tmdbVerifyCredential(hit) {
@@ -2945,14 +2906,6 @@ ipcMain.handle('tmdbAuth:grab', async () => {
   return { found: true, type: normalized.type, valid: true, state: publicCredentialState() };
 });
 
-/* ================= v3.4.2 播放源强过滤 + 轮询提速（纯增量） =================
-   两件事都只在基线返回值外面套一层，不改基线的解析、打分与轮询实现：
-   ① 提速：基线一批最多 4 个源（findMovieResources 把 limit 夹在 1..4），mode=full 有 8 个源
-      就要跑 3 批，渲染端每批之间还 setTimeout 90ms。这里一次把全部源并行拉完并直接标 done，
-      渲染端一次调用就拿到齐的结果；同一部片 60s 内再开介绍页直接命中合并缓存。
-   ② 过滤：标题强一致是主判据（实测《寄生虫》混进「寄生虫保姆」、《不择手段》混进
-      「假名媛她不择手段」都是标题不一致），类型与年份只作辅助；判据不足一律放行。
-*/
 const { filterResources } = require('./resource-type-filter.cjs');
 
 const RESOURCE_FAST_TTL_MS = 60 * 1000;
@@ -2971,7 +2924,6 @@ function resourceFastKey(payload = {}) {
   ].join('|');
 }
 
-// 一次调用把全部源并行拉完：第一批拿 total，剩下的批次并发补齐。任何一批抛错都只是少几个源。
 async function gatherAllSources(payload) {
   const first = await findMovieResources(payload, { cursor: 0, limit: RESOURCE_BATCH });
   if (!first) return null;
@@ -3000,7 +2952,7 @@ ipcMain.handle('resources:findMovieFiltered', async (_event, payload = {}, optio
   } catch {
     gathered = null;
   }
-  // 并行链路任何意外都退回基线单次调用，行为与上一版一致
+
   if (!gathered) {
     const fallback = await findMovieResources(payload, options);
     const fb = filterResources(fallback.resources, payload);
@@ -3036,21 +2988,6 @@ ipcMain.handle('resources:findMovieFiltered', async (_event, payload = {}, optio
   return result;
 });
 
-/* ================= v3.4.2 播放首帧深度预热（纯增量，第二轮加强） =================
-   上一版只预跑了 resolve + 一发 Range: bytes=0-1，实测三段链里"清单 + 首分片"仍要 1~2.5s。
-   关键发现：基线 proxyMediaRequest 调 session.defaultSession.fetch 时**没有传 cache 参数**
-   （main.cjs:1798），也就是走 Chromium 默认缓存模式 —— 只要我用与它一致的头、同样的默认缓存
-   模式先把清单和首分片取回来，播放器再请求同一条 URL 就有机会直接命中会话 HTTP 缓存。
-   所以这一版把预热做成"把起播要用的字节真的先取回来"：
-     ① resolveMediaUrl —— 填基线 mediaResolveCache，share 线路省掉整页 HTML 解析
-     ② 清单本体（几十 KB，必取，且必进缓存）
-     ③ #EXT-X-KEY 的 URI —— 密钥不预热就是一次串行往返
-     ④ 前 2 个分片 —— 只在 content-length 已知且 ≤4MB 时取，避免误拉大文件
-     ⑤ 非 m3u8 的直链 —— 只发 Range 前 256KB，热 DNS/TLS 与边缘节点（部分响应不入缓存，
-        这一档只能省掉握手，省不掉源站 TTFB）
-   深度预热很贵，只给"最可能被点的那条"：介绍页第一条 + 鼠标悬停的那条，单次调用最多 2 条。
-   全程 best-effort：任何一步失败都只是少预热一点，绝不影响真实播放链路。
-*/
 const MEDIA_WARM_TIMEOUT_MS = 8000;
 const MEDIA_WARM_SEGMENT_MAX_BYTES = 4 * 1024 * 1024;
 const MEDIA_WARM_SEGMENTS = 2;
@@ -3058,7 +2995,6 @@ const MEDIA_WARM_DEEP_MAX = 2;
 const MEDIA_PREWARM_TTL_MS = 4 * 60 * 1000;
 const mediaPrewarmSeen = new Map();
 
-// 与基线 proxyMediaRequest 完全一致的头：会话 HTTP 缓存按 URL(+Vary) 命中，头不对就白热
 function mediaWarmHeaders(sourceUrl) {
   const headers = {
     accept: '*/*',
@@ -3067,7 +3003,7 @@ function mediaWarmHeaders(sourceUrl) {
   try {
     headers.referer = `${new URL(sourceUrl).origin}/`;
   } catch {
-    /* 源地址异常就不带 referer，让上游按默认处理 */
+
   }
   return headers;
 }
@@ -3084,7 +3020,7 @@ async function mediaWarmGet(url, headers, options = {}) {
     });
     const length = Number(response.headers.get('content-length') || 0);
     if (options.maxBytes && (!length || length > options.maxBytes)) {
-      try { await response.body?.cancel?.(); } catch { /* 取消失败无所谓 */ }
+      try { await response.body?.cancel?.(); } catch {  }
       return { skipped: true, status: response.status };
     }
     const contentType = String(response.headers.get('content-type') || '');
@@ -3101,7 +3037,6 @@ async function mediaWarmGet(url, headers, options = {}) {
   }
 }
 
-// 拆 HLS 清单：密钥 URI、分片 URI、是不是主清单（变体还要再跳一层）
 function parseHlsManifest(manifest, baseUrl) {
   const keys = [];
   const uris = [];
@@ -3135,7 +3070,6 @@ async function deepWarmMedia(rawUrl) {
   const stats = { resolveMs: Date.now() - startedAt, kind: String(resolved?.kind || ''), manifestBytes: 0, keys: 0, segmentBytes: 0, note: '' };
   if (!/^https?:\/\//i.test(target)) { stats.note = '无可用地址'; return stats; }
 
-  // 主清单 → 媒体清单，最多两跳
   for (let hop = 0; hop < 2; hop += 1) {
     const looksHls = /\.m3u8(\?|$)/i.test(target) || hop === 0;
     if (!looksHls) break;
@@ -3147,7 +3081,7 @@ async function deepWarmMedia(rawUrl) {
       stats.manifestBytes += got.text.length;
       target = parsed.uris[0] || '';
       if (!target) { stats.note = '主清单无变体'; return stats; }
-      continue; // 再跳一次取真正的媒体清单
+      continue;
     }
     stats.manifestBytes += got.text.length;
     for (const keyUrl of parsed.keys.slice(0, 1)) {
@@ -3162,7 +3096,6 @@ async function deepWarmMedia(rawUrl) {
     return stats;
   }
 
-  // 非 HLS 直链：只发一小段 Range，热连接与边缘节点（部分响应不进缓存，这里只省握手）
   const got = await mediaWarmGet(target, mediaWarmHeaders(target), { range: 'bytes=0-262143' });
   stats.note = got.error ? `直链 ${got.error}` : '直链已热连接';
   return stats;
@@ -3179,7 +3112,7 @@ ipcMain.handle('media:prewarm', async (_event, payload = {}) => {
   for (const url of list) {
     const seen = mediaPrewarmSeen.get(url);
     if (seen && now - seen.at < MEDIA_PREWARM_TTL_MS) {
-      // 之前只浅热过（连接/清单），这次要深度热：允许升级，别因为"见过"就整个跳过
+
       if (deepWanted > 0 && !seen.deep) {
         mediaPrewarmSeen.set(url, { at: now, deep: true });
         fresh.push(url);
@@ -3204,7 +3137,7 @@ ipcMain.handle('media:prewarm', async (_event, payload = {}) => {
   const deep = fresh.filter((url) => mediaPrewarmSeen.get(url)?.deep);
   const shallow = fresh.filter((url) => !deep.includes(url));
   if (deep.length) console.log(`[首帧预热] 深度排队 ${deep.length} 条：${String(deep[0]).slice(0, 60)}`);
-  // 深度预热是串行链（resolve→清单→密钥→分片），一次只跑一条，别把源站打死
+
   (async () => {
     for (const url of deep) {
       const stats = await deepWarmMedia(url).catch(() => null);
@@ -3214,7 +3147,7 @@ ipcMain.handle('media:prewarm', async (_event, payload = {}) => {
   (async () => {
     await applyProxySetting().catch(() => {});
     const startedAt = Date.now();
-    // 浅热只是热 DNS/TLS/边缘节点，一条要 1~3 秒，串行会拖到十几秒 → 三路并发
+
     const queue = shallow.slice();
     const workers = [];
     for (let i = 0; i < Math.min(3, queue.length); i += 1) {
@@ -3231,11 +3164,6 @@ ipcMain.handle('media:prewarm', async (_event, payload = {}) => {
   return { queued: fresh.length, deep: deep.length };
 });
 
-/* ================= v3.4.2 豆瓣元数据（纯增量，学习 LibreTV 的公开接口用法） =================
-   四个只读通道：热门列表 / 片名联想 / 条目摘要 / 海报匹配，外加一个图片中转
-   （豆瓣图片 CDN 无 Referer 返回 418、错误 Referer 返回 403，必须主进程带对头去取）。
-   全部走 defaultSession（继承应用代理）并带 10 分钟缓存；失败只返回 { ok:false }，不抛。
-*/
 const { createDoubanProvider } = require('./douban.cjs');
 let doubanProvider = null;
 function doubanClient() {
@@ -3253,11 +3181,6 @@ ipcMain.handle('douban:subject', (_event, payload = {}) => doubanSafe(doubanClie
 ipcMain.handle('douban:poster', (_event, payload = {}) => doubanSafe(doubanClient().poster(payload)));
 ipcMain.handle('douban:image', (_event, payload = {}) => doubanSafe(doubanClient().image(payload)));
 
-/* ================= v3.4.3 纯增量：every.film 开放元数据（海报 / 上游 id 解析兜底） =================
-   两个只读通道：search（中文片名 → 记录 + 海报）与 lookup（再取 detail 拿 tmdb/imdb/douban id）。
-   全部走 defaultSession（继承应用代理），单道闸串行 + 最小间隔 420ms + 429 按 Retry-After 退避 + 结果缓存；
-   失败只返回 { ok:false }，不抛。遵守该站 API 使用条款：读取无需密钥、渲染层负责署名与回链。
-*/
 const { createEveryfilmProvider } = require('./everyfilm.cjs');
 let everyfilmProvider = null;
 function everyfilmClient() {
@@ -3271,22 +3194,11 @@ ipcMain.handle('everyfilm:detail', (_event, payload = {}) => everyfilmSafe(every
 ipcMain.handle('everyfilm:lookup', (_event, payload = {}) => everyfilmSafe(everyfilmClient().lookup(payload)));
 ipcMain.handle('everyfilm:image', (_event, payload = {}) => everyfilmSafe(everyfilmClient().image(payload)));
 
-/* ================= v3.4.3 第三十一轮纯增量：无凭证兜底时保留一条可播线路（如意资源） =================
-   豆瓣条目没有 TMDB id，基线的详情/资源链路进不去，所以摘要卡下面只能显示"播放需 TMDB 凭证"。
-   这里补一条：按片名 + 年份直接问一次**应用本来就内置**的"如意资源"（RESOURCE_SOURCES 里 key='ruyi'
-   那条，api / modes 一字未改），复用基线自己的 searchResourceSource（含候选打分、详情回灌、线路解析），
-   拿回来的就是详情页同一种 compact 资源对象；再过一遍第十五轮的 filterResources，
-   媒体类型判断与详情页完全一致（电影卡不会给出 61 集的短剧）。
-   只读、单源、不新增任何播放实现：播放器 / resolve / 代理 / 预热全部走基线原有链路。
-*/
 const RUYI_FALLBACK_SOURCE = RESOURCE_SOURCES.find((source) => source.key === 'ruyi') || null;
 const RUYI_FALLBACK_TTL_MS = 10 * 60 * 1000;
 const RUYI_FALLBACK_CANDIDATES = 4;
 const ruyiFallbackCache = new Map();
 
-// 基线的 searchResourceSource 命中第一条就打止，而"某某[电影解说]"与正片归一化后同名、分数一样，
-// 于是它可能先返回被第十五轮判掉的那条。这里沿用同一批函数，但把 filter 挪进循环里：
-// 逐条候选"回灌详情 → compact → 媒体类型判断"，拿第一条通过的为止。
 async function ruyiFallbackResource(query) {
   const titles = uniqueResourceQueries(query).slice(0, 2);
   const year = releaseYearOf(query);
@@ -3314,7 +3226,7 @@ async function ruyiFallbackResource(query) {
         }
         if (resources.length) return resources[0];
       } catch {
-        // 单条候选失败就下一条
+
       }
     }
   }
@@ -3350,15 +3262,6 @@ ipcMain.handle('douban:playSource', async (_event, payload = {}) => {
   }
 });
 
-/* ================= v3.4.4 纯增量：GitHub Release 检查 / 直连下载 / 一键覆盖安装 =================
-   查询与下载都在 electron/updater.cjs 里（node:https 直连：api.github.com 走本机代理会被
-   共用出口 IP 判成 API 限流，实测直连 200 / 代理 403）。这里只做通道与收尾：
-   - update:check    只读，返回当前版本、最新正式版、本机该下哪个包（按平台/架构挑）
-   - update:download 流式下载到 userData/updates，边下边通过 update:progress 推给渲染层
-   - update:install  Windows 静默跑 NSIS 安装包（/S、per-user、不弹 UAC），随后退出应用让安装器覆盖
-   - update:reveal   其它平台或不支持静默安装时，把下载好的文件在资源管理器里打开
-   已有的播放 / 资源 / 凭证链路一行未改。
-*/
 const { createUpdater } = require('./updater.cjs');
 let updaterClient = null;
 function updaterClientSafe() {
@@ -3386,9 +3289,9 @@ ipcMain.handle('update:install', async (_event, payload = {}) => {
   const client = updaterClientSafe();
   const result = client.install(payload);
   if (result?.ok) {
-    // 给安装器一点时间起来，然后退出自己，让它能覆盖 win-unpacked / 已安装目录里的文件
+
     setTimeout(() => {
-      try { app.quit(); } catch { /* 退出失败也无所谓，安装器会等 */ }
+      try { app.quit(); } catch {  }
     }, 900);
   }
   return result;

@@ -26,8 +26,8 @@ function buildDnsQuery(name, type) {
   const bodyLen = labels.reduce((sum, label) => sum + 1 + Buffer.byteLength(label), 0) + 1 + 4;
   const buf = Buffer.alloc(12 + bodyLen);
   buf.writeUInt16BE(0x1cf0, 0);
-  buf.writeUInt16BE(0x0100, 2); // RD=1
-  buf.writeUInt16BE(1, 4);       // QDCOUNT=1
+  buf.writeUInt16BE(0x0100, 2);
+  buf.writeUInt16BE(1, 4);
   let off = 12;
   for (const label of labels) {
     const len = Buffer.byteLength(label);
@@ -37,7 +37,7 @@ function buildDnsQuery(name, type) {
   }
   buf.writeUInt8(0, off++);
   buf.writeUInt16BE(type, off); off += 2;
-  buf.writeUInt16BE(1, off);    // IN
+  buf.writeUInt16BE(1, off);
   return buf;
 }
 
@@ -66,7 +66,7 @@ function parseDnsMessage(buf) {
     off = skipDnsName(buf, off);
     if (off + 10 > buf.length) break;
     const type = buf.readUInt16BE(off); off += 2;
-    off += 2; // class
+    off += 2;
     const ttl = buf.readUInt32BE(off); off += 4;
     const rdlen = buf.readUInt16BE(off); off += 2;
     if (off + rdlen > buf.length) break;
@@ -84,12 +84,10 @@ function parseDnsMessage(buf) {
   return { rcode, answers };
 }
 
-/* ============ 上游 ============ */
-
 function createUpstream({ url, mode, label }) {
   return {
     url: String(url || '').replace(/\/+$/, ''),
-    mode,                         // 'json' | 'wire' | 'auto'
+    mode,
     resolvedMode: mode === 'auto' ? null : mode,
     label: label || String(url),
     ok: 0,
@@ -155,7 +153,7 @@ async function queryUpstreamWire(upstream, name, type) {
 async function queryUpstream(upstream, name, type, typeLabel) {
   if (upstream.resolvedMode === 'wire') return queryUpstreamWire(upstream, name, type);
   if (upstream.resolvedMode === 'json') return queryUpstreamJson(upstream, name, typeLabel);
-  // auto：先 JSON 后 wireformat，命中即记住
+
   try {
     const result = await queryUpstreamJson(upstream, name, typeLabel);
     upstream.resolvedMode = 'json';
@@ -167,14 +165,12 @@ async function queryUpstream(upstream, name, type, typeLabel) {
   }
 }
 
-/* ============ 中继 ============ */
-
 function startSmartDoh(options = {}) {
   const log = typeof options.log === 'function' ? options.log : () => {};
   const app = options.app || null;
 
   const upstreams = [];
-  // 用户自配上游优先（协议自动探测），可指向自部署的 edge-smart-doh 实例
+
   if (app && typeof app.getPath === 'function') {
     try {
       const file = path.join(app.getPath('userData'), 'doh-upstream.txt');
@@ -185,7 +181,7 @@ function startSmartDoh(options = {}) {
           log(`用户自配 DoH 上游: ${custom}`);
         }
       }
-    } catch { /* best-effort */ }
+    } catch {  }
   }
   if (Array.isArray(options.upstreams) && options.upstreams.length) {
     upstreams.push(...options.upstreams);
@@ -273,7 +269,7 @@ function startSmartDoh(options = {}) {
       res.writeHead(502, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ Status: 2, Answer: [] }));
     })().catch(() => {
-      try { res.writeHead(500).end(); } catch { /* ignore */ }
+      try { res.writeHead(500).end(); } catch {  }
     });
   });
 
@@ -286,7 +282,7 @@ function startSmartDoh(options = {}) {
       resolve(value);
     };
     const guard = setTimeout(() => {
-      try { server.close(); } catch { /* ignore */ }
+      try { server.close(); } catch {  }
       log('启动超时，放弃中继（回退 3.4.4 默认 DoH）');
       finish(null);
     }, START_BUDGET_MS);
@@ -297,6 +293,7 @@ function startSmartDoh(options = {}) {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       const endpoint = `http://127.0.0.1:${port}/resolve`;
+
       if (typeof server.unref === 'function') server.unref();
       log(`中继就绪 ${endpoint} → 上游: ${upstreams.map((u) => u.label).join(' → ')}`);
       finish(endpoint);

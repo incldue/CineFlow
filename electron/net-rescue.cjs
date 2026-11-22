@@ -25,14 +25,17 @@ const MAX_CANDIDATES = 6;
 const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 let earlyDirectTimer = null;
 const PROXY_PROBE_MS = Number(process.env.CINEFLOW_PROXY_PROBE_MS || 1200);
+
 const PROXY_HEALTH_MS = Number(process.env.CINEFLOW_PROXY_HEALTH_MS || 4500);
 const PROXY_DEAD_TTL_MS = 60 * 1000;
 const PROXY_ALIVE_TTL_MS = 60 * 1000;
 const PROXY_REPROBE_INTERVAL_MS = 60 * 1000;
 const MAP_MAX_TLS_MS = Number(process.env.CINEFLOW_MAP_MAX_TLS_MS || 400);
+
 const TMDB_ALIAS_HOST = 'api.tmdb.org';
 
 const SKIP_EXTENSION_RE = /\.(ts|m4s|mp4|m4a|aac|flv|webm|mkv|mp3|wav|vtt|jpg|jpeg|png|webp|gif)(?:$|[?#])/i;
+
 const MEDIA_URL_RE = /\.(?:m3u8|mpd|ts|m4s|mp4|m4a|aac|flv|webm|mkv|mp3|wav|vtt|jpg|jpeg|png|webp|gif)(?:$|[?#])/i;
 
 const AGENT = new https.Agent({ keepAlive: true, keepAliveMsecs: 20000, maxSockets: 96, maxFreeSockets: 24, timeout: 45000 });
@@ -92,7 +95,7 @@ function tlsProbe(ip, host, timeoutMs) {
     const finish = (ok) => {
       if (done) return;
       done = true;
-      try { socket?.destroy(); } catch { /* ignore */ }
+      try { socket?.destroy(); } catch {  }
       resolve(ok ? Date.now() - startedAt : -1);
     };
     try {
@@ -115,7 +118,7 @@ function tcpProbe(ip, port, timeoutMs) {
     const finish = (ok) => {
       if (done) return;
       done = true;
-      try { socket.destroy(); } catch { /* ignore */ }
+      try { socket.destroy(); } catch {  }
       resolve(ok ? Date.now() - startedAt : -1);
     };
     socket.on('connect', () => finish(true));
@@ -174,6 +177,7 @@ function createNetRescue(options = {}) {
     const entry = goodIp.get(host);
     return entry && entry.latency ? entry.latency : 0;
   }
+
   const cacheFile = String(options.cacheFile || '');
   const RESTORED_TTL_MS = Number(process.env.CINEFLOW_RESTORED_IP_TTL_MS || 6 * 60 * 60 * 1000);
   let saveTimer = null;
@@ -210,7 +214,7 @@ function createNetRescue(options = {}) {
       fsp.mkdirSync(pathMod.dirname(cacheFile), { recursive: true });
       fsp.writeFileSync(cacheFile, JSON.stringify(out), 'utf8');
       lastCacheWrite = Date.now();
-    } catch { /* ignore */ }
+    } catch {  }
   }
 
   function saveIpCache() {
@@ -313,6 +317,7 @@ function createNetRescue(options = {}) {
     }
     resolveActive = Math.max(0, resolveActive - 1);
   }
+
   const HOST_ALIASES = {
     'api.themoviedb.org': ['api.tmdb.org'],
     'api.tmdb.org': ['api.themoviedb.org'],
@@ -364,6 +369,7 @@ function createNetRescue(options = {}) {
     resolving.set(key, task);
     return task;
   }
+
   function warmUp(hosts) {
     const list = (Array.isArray(hosts) ? hosts : []).filter(Boolean);
     for (const entry of list) {
@@ -385,7 +391,7 @@ function createNetRescue(options = {}) {
         req.on('error', () => {});
         req.on('timeout', () => req.destroy());
         req.end();
-      } catch { /* ignore */ }
+      } catch {  }
     }
   }
 
@@ -490,6 +496,7 @@ function createNetRescue(options = {}) {
       req.end();
     });
   }
+
   function streamHost(host, ip, urlObj, init, hops) {
     const secure = urlObj.protocol !== 'http:';
     const lib = secure ? https : http;
@@ -536,7 +543,7 @@ function createNetRescue(options = {}) {
         for (const [key, value] of Object.entries(res.headers || {})) {
           if (value === undefined || value === null) continue;
           if (/^(content-encoding|transfer-encoding|connection|keep-alive)$/i.test(key)) continue;
-          try { outHeaders.set(key, Array.isArray(value) ? value.join(', ') : String(value)); } catch { /* ignore */ }
+          try { outHeaders.set(key, Array.isArray(value) ? value.join(', ') : String(value)); } catch {  }
         }
         let closed = false;
         const stream = new ReadableStream({
@@ -548,17 +555,17 @@ function createNetRescue(options = {}) {
             res.on('end', () => {
               if (closed) return;
               closed = true;
-              try { controller.close(); } catch { /* ignore */ }
+              try { controller.close(); } catch {  }
             });
             res.on('error', () => {
               if (closed) return;
               closed = true;
-              try { controller.close(); } catch { /* ignore */ }
+              try { controller.close(); } catch {  }
             });
           },
           cancel() {
             closed = true;
-            try { req.destroy(); } catch { /* ignore */ }
+            try { req.destroy(); } catch {  }
           }
         });
         resolve(new Response(status === 204 || status === 304 ? null : stream, { status: status || 200, headers: outHeaders }));
@@ -574,7 +581,7 @@ function createNetRescue(options = {}) {
     for (const [key, value] of Object.entries(result.headers || {})) {
       if (value === undefined || value === null) continue;
       if (/^(content-encoding|transfer-encoding|content-length|connection|keep-alive)$/i.test(key)) continue;
-      try { headers.set(key, Array.isArray(value) ? value.join(', ') : String(value)); } catch { /* ignore */ }
+      try { headers.set(key, Array.isArray(value) ? value.join(', ') : String(value)); } catch {  }
     }
     const allowBody = !(result.status === 204 || result.status === 304);
     return new Response(allowBody ? result.buffer : null, { status: result.status || 200, headers });
@@ -595,14 +602,13 @@ function createNetRescue(options = {}) {
     return { host: hostPart, port: portPart };
   }
 
-
   function connectProbe(proxyHost, proxyPort, targetHost, timeoutMs) {
     return new Promise((resolve) => {
       let settled = false;
       const finish = (ok) => {
         if (settled) return;
         settled = true;
-        try { sock.destroy(); } catch { /* ignore */ }
+        try { sock.destroy(); } catch {  }
         resolve(ok);
       };
       const sock = net.connect({ host: proxyHost, port: proxyPort, timeout: timeoutMs });
@@ -620,7 +626,7 @@ function createNetRescue(options = {}) {
         sock.removeAllListeners('data');
         const secure = tls.connect({ socket: sock, servername: targetHost, rejectUnauthorized: false });
         secure.on('secureConnect', () => {
-          try { secure.destroy(); } catch { /* ignore */ }
+          try { secure.destroy(); } catch {  }
           finish(true);
         });
         secure.on('error', () => finish(false));
@@ -630,6 +636,7 @@ function createNetRescue(options = {}) {
       setTimeout(() => finish(false), timeoutMs + 200);
     });
   }
+
   const PROXY_HOST_TTL_MS = 60 * 1000;
   const proxyHostState = new Map();
 
@@ -640,7 +647,7 @@ function createNetRescue(options = {}) {
       const finish = (ms) => {
         if (settled) return;
         settled = true;
-        try { sock.destroy(); } catch { /* ignore */ }
+        try { sock.destroy(); } catch {  }
         resolve(ms);
       };
       const sock = net.connect({ host: proxyHost, port: proxyPort, timeout: timeoutMs });
@@ -659,7 +666,7 @@ function createNetRescue(options = {}) {
         sock.removeAllListeners('data');
         const secure = tls.connect({ socket: sock, servername: targetHost, rejectUnauthorized: false });
         secure.on('secureConnect', () => {
-          try { secure.destroy(); } catch { /* ignore */ }
+          try { secure.destroy(); } catch {  }
           finish(Date.now() - started);
         });
         secure.on('error', () => finish(handshakeMs));
@@ -711,7 +718,7 @@ function createNetRescue(options = {}) {
               proxyState.failStreak = 0;
               return true;
             }
-            // 连续两次判死才降级：单次慢探（Clash 切换节点、DNS 冷启）不会再引发全局切直连。
+
             proxyState.failStreak = (proxyState.failStreak || 0) + 1;
             if (proxyState.failStreak >= 2) {
               proxyState.dead = true;
@@ -732,6 +739,7 @@ function createNetRescue(options = {}) {
       });
     return proxyState.inflight;
   }
+
   const EARLY_DIRECT_MS = Number(process.env.CINEFLOW_EARLY_DIRECT_MS || 6000);
 
   function scheduleEarlyDirect(ses) {
@@ -742,10 +750,11 @@ function createNetRescue(options = {}) {
         if (!proxyState.inflight) return;
         log('代理探测 ' + EARLY_DIRECT_MS + 'ms 未出结论，先切直连');
         forceDirect(ses);
-      } catch { /* ignore */ }
+      } catch {  }
     }, EARLY_DIRECT_MS);
     if (typeof earlyDirectTimer.unref === 'function') earlyDirectTimer.unref();
   }
+
   function kickProxyProbe(ses) {
     const now = Date.now();
     if (proxyState.inflight) return;
@@ -805,6 +814,7 @@ function createNetRescue(options = {}) {
         proxyState.switching = false;
       });
   }
+
   const RESTORE_COOLDOWN_MS = Number(process.env.CINEFLOW_PROXY_COOLDOWN_MS || 90000);
   let lastFlipAt = 0;
   let restoreVotes = 0;
@@ -835,6 +845,7 @@ function createNetRescue(options = {}) {
         .catch(() => false);
     probe.then((ok) => {
       if (!ok) {
+
         restoreVotes = 0;
         proxyState.overrode = false;
         return forceDirect(ses).then(() => {
@@ -917,7 +928,6 @@ function createNetRescue(options = {}) {
     ses.__cfSetProxyWrapped = true;
   }
 
-  // 这些主机在无代理环境下必须靠 DoH 真 IP 才能访问，也是"能不能进 TMDB 模式"的关键路径。
   const RESCUE_HOSTS = new Set([
     'api.themoviedb.org',
     'api.tmdb.org',
@@ -930,10 +940,11 @@ function createNetRescue(options = {}) {
     for (let i = 0; i < Math.min(buffer.length, 64); i += 1) {
       const code = buffer[i];
       if (code === 32 || code === 9 || code === 10 || code === 13 || code === 0xef || code === 0xbb || code === 0xbf) continue;
-      return code === 0x7b || code === 0x5b; // { 或 [
+      return code === 0x7b || code === 0x5b;
     }
     return false;
   }
+
   async function planFor(host, ses) {
     const cached = cachedIp(host);
     if (cached) return { direct: true, ip: cached, cached: true };
@@ -950,6 +961,7 @@ function createNetRescue(options = {}) {
     if (proxyMs > 0) {
       const directMs = cachedLatency(host) || 0;
       if (directMs && proxyMs > directMs + 350) return { direct: true, ip, cached: false, reason: 'direct-faster' };
+
       if (proxyMs >= 1500 && ip) {
         proxyHostState.set(host, { at: Date.now(), latency: proxyMs });
         debugLog('代理到 ' + host + ' 需 ' + proxyMs + 'ms，改用直连');
@@ -958,6 +970,7 @@ function createNetRescue(options = {}) {
     }
     return { direct: false };
   }
+
   function wrapOnce(ses) {
     wrapSetProxy(ses);
     const original = ses.fetch.bind(ses);
@@ -985,10 +998,12 @@ function createNetRescue(options = {}) {
       stats.requests += 1;
       const host = urlObj.hostname;
       debugLog('hit', urlObj.protocol, host, isMedia ? 'media' : '');
+
       const needPlan = Boolean(cachedIp(host)) || RESCUE_HOSTS.has(host);
       if (needPlan) {
         const wantsJson = RESCUE_HOSTS.has(host) && urlObj.pathname.startsWith('/3/');
         const requestInit = wantsJson ? Object.assign({}, init, { __cfExpectJson: true }) : init;
+
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const plan = await planFor(host, ses).catch(() => null);
           if (!plan || !plan.direct || !plan.ip || isBad(plan.ip)) break;
@@ -1011,7 +1026,6 @@ function createNetRescue(options = {}) {
         }
       }
 
-      // 媒体没拿到直连方案：交回 Chromium（走用户配置的代理或系统解析）
       if (isMedia) {
         stats.skipped += 1;
         return original(input, init);
@@ -1024,7 +1038,7 @@ function createNetRescue(options = {}) {
         }
         const sticky = cachedIp(host);
         if (sticky && !isBad(sticky)) {
-          // 已知真 IP：直发，省掉 Chromium 的 DNS 等待
+
           stats.fastPath += 1;
           return requestHost(host, sticky, urlObj, init, 4)
             .then((result) => {
@@ -1037,6 +1051,7 @@ function createNetRescue(options = {}) {
               return original(input, init);
             });
         }
+
         return original(input, init).catch((error) => {
           stats.fellBack += 1;
           return viaIp(urlObj, init)
@@ -1077,7 +1092,7 @@ function createNetRescue(options = {}) {
         ses.__cfNetRescueTimer = setInterval(() => restoreProxyIfAlive(ses), PROXY_REPROBE_INTERVAL_MS);
         if (typeof ses.__cfNetRescueTimer.unref === 'function') ses.__cfNetRescueTimer.unref();
       }
-    } catch { /* ignore */ }
+    } catch {  }
     if (!force || !ses.__cfNetRescueLogged) {
       ses.__cfNetRescueLogged = true;
       log('直连兜底已接管 session.fetch');

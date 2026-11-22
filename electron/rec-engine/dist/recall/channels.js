@@ -7,7 +7,7 @@ function topN(map, n, exclude, source) {
         .slice(0, n);
     return arr.map(([itemId, score]) => ({ itemId, score, source }));
 }
-/** R1: ItemCF 协同召回 —— 主力路, 依赖离线相似度矩阵 */
+
 export class ItemCFChannel {
     source = 'itemcf';
     state;
@@ -24,7 +24,7 @@ export class ItemCFChannel {
         const idxToId = this.state.items;
         if (ctx.scene === 'similar') {
             const anchorIdx = ctx.request.anchorItemId ? itemIdToIdx.get(ctx.request.anchorItemId) : undefined;
-            // 物料增量追加后, 新条目尚未进入离线矩阵(下次 rebuild 纳入), 越界下标必须跳过
+
             if (anchorIdx === undefined || anchorIdx >= itemcf.n)
                 return [];
             const out = new Map();
@@ -40,7 +40,7 @@ export class ItemCFChannel {
             }
             return topN(out, this.cfg.recallPerChannel, new Set(), this.source);
         }
-        // 长期画像: 取 top seeds(权重×时间衰减), 加权汇总其近邻
+
         const seeds = [...ctx.profile.itemWeights.entries()]
             .sort((a, b) => b[1] - a[1])
             .slice(0, this.cfg.itemcfSeeds);
@@ -68,7 +68,7 @@ export class ItemCFChannel {
         return topN(out, this.cfg.recallPerChannel, new Set(), this.source);
     }
 }
-/** R2: 内容语义召回 —— 用户画像向量(行为加权质心)与物料向量余弦检索 */
+
 export class ContentChannel {
     source = 'content';
     state;
@@ -109,7 +109,7 @@ export class ContentChannel {
             query = this.state.tfidf.vectors.slice(anchorIdx * d, (anchorIdx + 1) * d);
         }
         else {
-            // 行为加权质心
+
             const { tfidf } = this.state;
             if (!tfidf)
                 return [];
@@ -120,7 +120,7 @@ export class ContentChannel {
             for (const [id, w] of ctx.profile.itemWeights) {
                 const i = itemIdToIdx.get(id);
                 if (i === undefined || i >= tfidf.n)
-                    continue; // 增量新条目无向量, rebuild 后纳入
+                    continue;
                 const decay = recencyDecay(ctx.profile.itemLastTs.get(id) ?? now, now, this.cfg.recencyHalfLifeDays);
                 const wi = w * decay;
                 wsum += wi;
@@ -129,7 +129,7 @@ export class ContentChannel {
                     query[dd] += wi * tfidf.vectors[base + dd];
             }
             if (wsum === 0) {
-                // 新用户: 用 onboarding 兴趣类型文本构造伪画像
+
                 const genres = this.state.onboarding.get(ctx.userId);
                 if (!genres?.length)
                     return [];
@@ -147,7 +147,7 @@ export class ContentChannel {
         return hits.map((h) => ({ itemId: items[h.idx].id, score: h.sim, source: 'content' }));
     }
 }
-/** R3: 标签/类型召回 —— 类型偏好 × 物料质量(贝叶斯平滑外部评分), 冷启动主力 */
+
 export class TagChannel {
     source = 'tag';
     state;
@@ -182,10 +182,10 @@ export class TagChannel {
         out.sort((a, b) => b.score - a.score);
         return out.slice(0, this.cfg.recallPerChannel);
     }
-    /** 质量: 外部评分贝叶斯平滑(先验 6.5, m=5) + 新片扶持 */
+
     quality(item, now) {
         const v = item.rating ?? 0;
-        const q = (v * 1 + 6.5 * 5) / 6; // 无置信度数据时用固定平滑
+        const q = (v * 1 + 6.5 * 5) / 6;
         let score = q / 10;
         if (item.releaseDate) {
             const ageDays = (now - Date.parse(item.releaseDate)) / 86_400_000;
@@ -195,7 +195,7 @@ export class TagChannel {
         return score;
     }
 }
-/** R4: 热门/新片兜底 —— 时间衰减热度分, 保证任何用户都有结果 */
+
 export class TrendingChannel {
     source = 'trending';
     state;
@@ -220,7 +220,7 @@ export class TrendingChannel {
                     if (item?.releaseDate) {
                         const ageDays = (now - Date.parse(item.releaseDate)) / 86_400_000;
                         if (ageDays >= 0 && ageDays < this.cfg.newItemAgeDays)
-                            score *= 1.5; // 新片扶持
+                            score *= 1.5;
                     }
                     out.push({ itemId, score, source: 'trending' });
                 }
@@ -228,7 +228,7 @@ export class TrendingChannel {
                 return out.slice(0, this.cfg.recallPerChannel);
             }
         }
-        // 冷部署兜底: 无任何行为时按外部评分排序(编辑推荐语义)
+
         for (const item of this.state.items) {
             if (ctx.excludeIds.has(item.id))
                 continue;
@@ -238,7 +238,7 @@ export class TrendingChannel {
         return out.slice(0, this.cfg.recallPerChannel);
     }
 }
-/** R5: 会话实时召回 —— 本次会话最近交互的近邻(协同+语义), 捕捉即时兴趣 */
+
 export class RealtimeChannel {
     source = 'realtime';
     state;
@@ -254,7 +254,7 @@ export class RealtimeChannel {
     recall(ctx) {
         if (ctx.sessionItems.length === 0 || ctx.scene === 'similar')
             return [];
-        // 最近 5 个去重会话物品作为种子
+
         const seeds = [];
         const seen = new Set();
         for (const s of ctx.sessionItems) {
@@ -267,7 +267,7 @@ export class RealtimeChannel {
         }
         if (seeds.length === 0)
             return [];
-        // 构造以会话物品为锚的临时上下文, 复用 R1/R2
+
         const out = new Map();
         seeds.forEach((seed, rank) => {
             const w = 1 / (rank + 1);
@@ -297,7 +297,7 @@ export class RealtimeChannel {
         return topN(out, this.cfg.recallPerChannel, new Set(), this.source);
     }
 }
-/** 按场景组装通道 */
+
 export function buildChannels(state, cfg) {
     const itemcf = new ItemCFChannel(state, cfg);
     const content = new ContentChannel(state, cfg);

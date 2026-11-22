@@ -2,7 +2,7 @@
 
 const telemetry = require('./telemetry.cjs');
 
-const providers = new Map();   // id -> { id, kind, description, capabilities, search }
+const providers = new Map();
 
 function registerProvider(provider) {
   if (!provider?.id || typeof provider.search !== 'function') return false;
@@ -87,7 +87,7 @@ function installSourceChannels(ipcMain) {
     if (!ipcMain._invokeHandlers.get('cf:sources.search')) {
       ipcMain.handle('cf:sources.search', (_event, payload = {}) => searchAll(payload, { limit: payload?.limit || 3 }));
     }
-  } catch { /* 诊断通道注册失败不影响功能 */ }
+  } catch {  }
 }
 
 module.exports = { registerProvider, listProviders, searchAll, createCmsJsonSource, createDoubanCategorySource, installSourceChannels };

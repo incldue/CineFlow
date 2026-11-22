@@ -14,7 +14,7 @@ const state = {
   enabled: false,
   dir: '',
   maxBytes: DEFAULT_MAX_BYTES,
-  index: new Map(),    // key -> { file, size, at }
+  index: new Map(),
   totalBytes: 0
 };
 
@@ -42,7 +42,7 @@ function init({ app, maxBytes = DEFAULT_MAX_BYTES } = {}) {
             state.totalBytes += Number(meta.size) || 0;
           }
         }
-      } catch { /* 索引损坏 → 重建 */ }
+      } catch {  }
     }
     state.enabled = true;
     return true;
@@ -56,7 +56,7 @@ function persistIndex() {
     const entries = {};
     for (const [key, meta] of state.index) entries[key] = meta;
     fs.writeFileSync(path.join(state.dir, INDEX_FILE), JSON.stringify({ entries }, null, 0));
-  } catch { /* ignore */ }
+  } catch {  }
 }
 
 function evictToFit(incomingBytes = 0) {
@@ -68,7 +68,7 @@ function evictToFit(incomingBytes = 0) {
     }
     if (!oldestKey) break;
     const meta = state.index.get(oldestKey);
-    try { fs.unlinkSync(path.join(state.dir, meta.file)); } catch { /* ignore */ }
+    try { fs.unlinkSync(path.join(state.dir, meta.file)); } catch {  }
     state.index.delete(oldestKey);
     state.totalBytes -= Number(meta.size) || 0;
   }
@@ -91,7 +91,6 @@ async function serve(url, requestHeaders) {
   }
 }
 
-/** 可缓存响应写穿（调用方已确认 content-type 可缓存且 2xx；body 为完整 Buffer） */
 function store(url, requestHeaders, contentType, buffer) {
   if (!state.enabled || !(buffer instanceof Buffer) || !buffer.length) return false;
   evictToFit(buffer.length);
@@ -114,10 +113,10 @@ function store(url, requestHeaders, contentType, buffer) {
 
 function shouldCache(contentType, url) {
   const ct = String(contentType || '').toLowerCase();
-  if (/json|html|xml|text\/plain|javascript/.test(ct)) return false;   // 明确文本型一律不缓存
-  if (CACHEABLE_CONTENT_RE.test(ct)) return true;                      // 媒体 content-type 直接判可缓存
+  if (/json|html|xml|text\/plain|javascript/.test(ct)) return false;
+  if (CACHEABLE_CONTENT_RE.test(ct)) return true;
   if (!ct || ct === 'application/octet-stream') return CACHEABLE_URL_RE.test(String(url || '').split('?')[0]);
-  return false;                                                        // 其余未知类型不猜
+  return false;
 }
 
 function stats() {

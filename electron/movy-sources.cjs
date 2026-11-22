@@ -3,12 +3,13 @@
 const fsp = require('node:fs');
 const path = require('node:path');
 
-const RESULT_TTL_MS = 5 * 60 * 1000;          
-const RESULT_STALE_MS = 6 * 60 * 60 * 1000;     
-const SEED_TIMEOUT_MS = 4200;   
+const RESULT_TTL_MS = 5 * 60 * 1000;
+const RESULT_STALE_MS = 6 * 60 * 60 * 1000;
+const SEED_TIMEOUT_MS = 4200;
 const SOURCES_TIMEOUT_MS = 6500;
 const PROBE_CONCURRENCY = 4;
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 let movyDirectSession = null;
 function directSession() {
   try {
@@ -17,7 +18,7 @@ function directSession() {
     if (!session || typeof session.fromPartition !== 'function') return null;
     if (!movyDirectSession) {
       movyDirectSession = session.fromPartition('persist:movy-direct', { cache: true });
-      try { movyDirectSession.setProxy({ mode: 'direct' }).catch(() => {}); } catch { /* ignore */ }
+      try { movyDirectSession.setProxy({ mode: 'direct' }).catch(() => {}); } catch {  }
     }
     return movyDirectSession;
   } catch { return null; }
@@ -26,7 +27,7 @@ function directSession() {
 function loadNetChain() {
   const chain = [];
   chain.warn = (name, pathname) => {
-    try { if (typeof globalThis.__movyTransportWarn === 'function') globalThis.__movyTransportWarn(name, pathname); } catch { /* ignore */ }
+    try { if (typeof globalThis.__movyTransportWarn === 'function') globalThis.__movyTransportWarn(name, pathname); } catch {  }
   };
   const direct = directSession();
   if (direct && typeof direct.fetch === 'function') {
@@ -41,7 +42,7 @@ function loadNetChain() {
     if (electron.net && typeof electron.net.fetch === 'function') {
       chain.push({ name: 'net', fn: electron.net.fetch.bind(electron.net) });
     }
-  } catch { /* 非 Electron 环境（测试） */ }
+  } catch {  }
   if (typeof fetch === 'function') chain.push({ name: 'global', fn: fetch });
   return chain;
 }
@@ -59,16 +60,18 @@ function withTimeout(promise, ms, label) {
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
+
 function capture(kind, pathname, text, file) {
   const target = file || process.env.CINEFLOW_MOVY_CAPTURE;
   if (!target) return;
   try {
     fsp.appendFileSync(target, JSON.stringify({ kind, pathname, at: Date.now(), text: String(text).slice(0, 40000) }) + '\n');
-  } catch { /* 抓包失败不影响请求 */ }
+  } catch {  }
 }
 
 function createOfetch(capturePath) {
   const netFetch = loadNet();
+
   const seedFlights = new Map();
   async function rawOfetch(url, options = {}) {
     if (!netFetch) throw new Error('no fetch available');
@@ -80,6 +83,7 @@ function createOfetch(capturePath) {
         target.searchParams.set(key, String(value));
       }
     }
+
     const retries = Math.max(1, Number(options.retry) || 0);
     const timeout = /\/seed/.test(target.pathname) ? SEED_TIMEOUT_MS : SOURCES_TIMEOUT_MS;
     let lastError = null;
@@ -88,6 +92,7 @@ function createOfetch(capturePath) {
       try {
         let response = null;
         let networkError = null;
+
         for (const transport of transports) {
           try {
             response = await withTimeout(transport.fn(target.toString(), {
@@ -103,7 +108,7 @@ function createOfetch(capturePath) {
             break;
           } catch (error) {
             networkError = error;
-            // 有 HTTP 状态说明链路通，别换传输层；只有网络层失败才继续往下试
+
             if (error && error.status) throw error;
           }
         }
@@ -128,12 +133,12 @@ function createOfetch(capturePath) {
       } catch (error) {
         lastError = error;
         if (error && (error.status === 401 || error.status === 404)) throw error;
-        // 预热并发时上游会 429/500：退避一次再试，避免把「限流」显示成「该服务器挂了」
+
         const status = error && error.status;
-        const networkFailure = !status; // 超时 / ERR_CONNECTION_* / DNS 失败
+        const networkFailure = !status;
         const retriable = status === 429 || (status >= 500 && status < 600) || networkFailure;
         if (retriable && attempt < Math.max(1, retries)) {
-          // 网络层失败先用极短退避抢一次（代理探测窗口、瞬时丢包都能被这一次救回来）
+
           await new Promise((resolve) => setTimeout(resolve, networkFailure ? 120 : 380 + Math.round(Math.random() * 220)));
           continue;
         }
@@ -171,6 +176,7 @@ function qualityMeta(raw) {
 }
 
 function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, ofetch = null } = {}) {
+
   let mediaProxy = null;
   try {
     const { createMovyMediaProxy } = require('./movy-media-proxy.cjs');
@@ -181,10 +187,10 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
   }
   const streamHosts = new Set();
   globalThis.__movyTransportWarn = (name, pathname) => log('movy 传输回退到 ' + name + '（' + pathname + '）');
-  const memory = new Map();        
-  const pending = new Map();    
+  const memory = new Map();
+  const pending = new Map();
   let upstreamPromise = null;
-  let coolingUntil = 0;       
+  let coolingUntil = 0;
   const COOL_MS = 8000;
   let cacheDir = '';
 
@@ -192,7 +198,7 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
     try {
       const host = new URL(String(url)).host;
       if (host) streamHosts.add(host);
-    } catch { /* 非法 URL 忽略 */ }
+    } catch {  }
     return '';
   }
 
@@ -230,7 +236,7 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
       const tmp = file + '.tmp';
       fsp.writeFileSync(tmp, JSON.stringify(entry));
       fsp.renameSync(tmp, file);
-    } catch { /* 缓存写失败不影响播放 */ }
+    } catch {  }
   }
 
   function captureFile() {
@@ -311,7 +317,7 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
         const age = Date.now() - disk.savedAt;
         const stale = age >= RESULT_TTL_MS;
         if (stale) {
-          // 过期但可用：先把旧结果给界面（毫秒级），同时在后台静默换新
+
           const flightKey = key + '|revalidate';
           if (!pending.has(flightKey)) {
             pending.set(flightKey, runFetch({ ...input, provider: provider.name }, provider, key, Date.now())
@@ -385,9 +391,11 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
     log('movy 源：' + provider.name + ' ' + sources.length + ' 档 · ' + (Date.now() - started) + 'ms');
     return { ...data, cached: false, ms: Date.now() - started };
   }
+
   async function warm(input = {}, hooks = {}) {
     const { providers } = await getUpstream();
     const concurrency = Math.max(1, Math.min(4, Number(input.concurrency) || 2));
+
     const head = Math.max(1, Math.min(providers.length, Number(input.head) || 4));
     const wanted = Array.isArray(input.providers) && input.providers.length
       ? providers.filter((item) => input.providers.includes(item.name))
@@ -399,6 +407,7 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
       let launched = 0;
       while (cursor < targets.length) {
         const provider = targets[cursor++];
+
         if (launched++ > 0) {
           await new Promise((resolve) => setTimeout(resolve, 320 + Math.round(Math.random() * 160)));
         }
@@ -419,7 +428,7 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
           error: (payload && payload.error) || '',
         };
         results.push(row);
-        try { hooks.onResult?.(row); } catch { /* 回调异常不影响其余服务器 */ }
+        try { hooks.onResult?.(row); } catch {  }
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker));
@@ -449,6 +458,7 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
     results.sort((a, b) => providers.findIndex((p) => p.name === a.provider) - providers.findIndex((p) => p.name === b.provider));
     return { results };
   }
+
   async function prewarm() {
     try {
       const { providers, streamOrigin } = await getUpstream();
@@ -482,9 +492,9 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
       proxy: channels.proxy || 'cf:m2:movy-proxy',
     };
     const progressChannel = channels.progress || 'cf:m2:movy-warm:progress';
-    const warmSeen = new Map();   // movieKey -> 最近一次预热时间（同一部片 60s 内不重复全量预热）
+    const warmSeen = new Map();
     for (const name of Object.values(names)) {
-      try { ipcMain.removeHandler(name); } catch { /* 未注册过 */ }
+      try { ipcMain.removeHandler(name); } catch {  }
     }
     ipcMain.handle(names.list, async () => {
       try {
@@ -513,6 +523,7 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
         return { results: [], error: String(error && error.message || error) };
       }
     });
+
     ipcMain.handle(names.warm, async (event, payload = {}) => {
       try {
         const movieKey = [payload.mediaType || 'movie', payload.tmdbId || 0, payload.seasonId || 1, payload.episodeId || 1].join(':');
@@ -529,11 +540,11 @@ function createMovySources({ log = () => {}, userDataDir = '', ipcMain = null, o
           try {
             if (!sender || sender.isDestroyed()) return;
             sender.send(progressChannel, { movieKey, provider: row.provider, ok: row.ok, ms: row.ms, count: row.count, sources: row.sources, note: row.note, error: row.error });
-          } catch { /* 窗口已关，忽略 */ }
+          } catch {  }
         };
         warm(payload, { onResult: send })
-          .then(() => { try { if (sender && !sender.isDestroyed()) sender.send(progressChannel, { movieKey, done: true }); } catch { /* ignore */ } })
-          .catch(() => { /* 预热失败静默 */ });
+          .then(() => { try { if (sender && !sender.isDestroyed()) sender.send(progressChannel, { movieKey, done: true }); } catch {  } })
+          .catch(() => {  });
         return { started: true, movieKey };
       } catch (error) {
         return { started: false, error: String((error && error.message) || error) };

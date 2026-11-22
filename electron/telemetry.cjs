@@ -1,13 +1,8 @@
 'use strict';
-/**
- * 基础遥测（新增文件，零触碰架构基建之二）。
- * 结构化事件环形缓冲 + 计数器 + 时长事件；纯本地内存，无任何网络上报（隐私安全）。
- * 通道：cf:telemetry.dump（诊断自省用，渲染层/开发者均可拉取）。
- */
 
 const EVENT_MAX = 300;
-const events = [];            // { at, name, ms?, data? } 环形缓冲
-const counters = new Map();   // name -> count
+const events = [];
+const counters = new Map();
 let sequence = 0;
 
 function record(name, data = null, ms = null) {
@@ -22,10 +17,9 @@ function record(name, data = null, ms = null) {
     });
     if (events.length > EVENT_MAX) events.splice(0, events.length - EVENT_MAX);
     if (name) counters.set(name, (counters.get(name) || 0) + 1);
-  } catch { /* 遥测绝不影响主流程 */ }
+  } catch {  }
 }
 
-/** 计时器：const done = timer('agg'); … done({ total }); */
 function timer(name) {
   const startedAt = Date.now();
   return (data = null) => {
@@ -54,7 +48,7 @@ function installTelemetryChannels(ipcMain) {
     if (!ipcMain._invokeHandlers.get('cf:telemetry.dump')) {
       ipcMain.handle('cf:telemetry.dump', (_event, payload = {}) => dump(payload?.limit));
     }
-  } catch { /* 诊断通道注册失败不影响功能 */ }
+  } catch {  }
 }
 
 module.exports = { record, timer, count, dump, installTelemetryChannels };

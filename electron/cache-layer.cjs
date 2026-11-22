@@ -1,16 +1,18 @@
 'use strict';
 
-const registry = new Map();  
+const registry = new Map();
+
 class Cache {
   constructor({ namespace, ttlMs = 0, max = 0, stale = false } = {}) {
     this.namespace = String(namespace || 'cache');
-    this.ttlMs = Math.max(0, Number(ttlMs) || 0);   // 默认 TTL（0 = 不过期）
+    this.ttlMs = Math.max(0, Number(ttlMs) || 0);
     this.max = Math.max(0, Number(max) || 0);
     this.stale = Boolean(stale);
-    this.store = new Map();                   // key -> { value, expiresAt }
+    this.store = new Map();
     this.stats = { hits: 0, misses: 0, evictions: 0, writes: 0 };
     registry.set(this.namespace, this);
   }
+
   get(key) {
     const entry = this.store.get(key);
     if (!entry) {
@@ -26,7 +28,7 @@ class Cache {
       this.stats.misses += 1;
       return undefined;
     }
-    this.store.delete(key);           
+    this.store.delete(key);
     this.store.set(key, entry);
     this.stats.hits += 1;
     return { value: entry.value, stale: false };
@@ -123,7 +125,7 @@ function installCacheChannels(ipcMain) {
     if (!ipcMain._invokeHandlers.get('cf:cache.sweep')) {
       ipcMain.handle('cf:cache.sweep', () => ({ removed: sweepAll() }));
     }
-  } catch { /* 诊断通道注册失败不影响功能 */ }
+  } catch {  }
 }
 
 module.exports = {

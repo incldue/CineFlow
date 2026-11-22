@@ -1,7 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-/** 默认配置文件路径: <dataDir>/../config/weights.json */
-/** 冷启动档位判定: 按用户有效交互数 switching 切换 (Burke 分类中的 switching 融合) */
+
 export function tierOf(interactionCount) {
     if (interactionCount <= 0)
         return 'new';
@@ -12,7 +11,7 @@ export function tierOf(interactionCount) {
     return 'deep';
 }
 export const DEFAULT_CONFIG = {
-    // 隐式反馈加权(借鉴 Koren 隐式反馈思想): 强行为权重大, 负反馈为负
+
     eventWeights: {
         imp: 0.1,
         click: 1,
@@ -20,7 +19,7 @@ export const DEFAULT_CONFIG = {
         finish: 4,
         like: 5,
         dislike: -6,
-        rate: { scale: 0.5, max: 5 }, // w = clamp(value,1,10)*0.5
+        rate: { scale: 0.5, max: 5 },
     },
     tierWeights: {
         new: { itemcf: 0, content: 0, tag: 1.0, trending: 0.6, realtime: 0, sasrec: 0 },
@@ -60,7 +59,7 @@ function mergeWeights(base, patch) {
     }
     return out;
 }
-/** 加载配置: 用户 JSON 只需覆盖想改的字段, 其余用默认值 */
+
 export function loadConfig(configPath) {
     if (!configPath || !existsSync(configPath))
         return structuredClone(DEFAULT_CONFIG);

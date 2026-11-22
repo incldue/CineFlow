@@ -23,7 +23,7 @@ const validators = {
 const contractView = () => Object.entries(validators).map(([channel, validate]) => ({
   channel,
   arity: validate.length,
-  enforced: false,          // log-only：不拦截
+  enforced: false,
   description: 'payload 形状校验，违规仅记录'
 }));
 
@@ -41,7 +41,7 @@ function installIpcContract(ipcMain) {
           if (violation) {
             telemetry.record('contract.violation', { channel, violation, payload: String(args[0] ?? '').slice(0, 120) });
           }
-        } catch { /* 校验自身异常绝不外泄 */ }
+        } catch {  }
         return original(event, ...args);
       });
       wrapped += 1;
@@ -50,7 +50,7 @@ function installIpcContract(ipcMain) {
       handlers.set('cf:contract.list', async () => ({ channels: contractView(), wrapped }));
     }
     return { wrapped, total: Object.keys(validators).length };
-  } catch { /* 契约层失败不影响任何功能 */ }
+  } catch {  }
   return { wrapped: 0, total: 0 };
 }
 

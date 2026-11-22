@@ -9,7 +9,6 @@ function loadElectron() {
   }
 }
 
-
 const CONFIG_URL = 'https://api.themoviedb.org/3/configuration';
 const VERIFY_TIMEOUT_MS = Number(process.env.CINEFLOW_TMDB_VERIFY_TIMEOUT_MS || 9000);
 
@@ -33,7 +32,7 @@ function createCredentialRescue({ log = () => {}, deps = {}, electron = loadElec
     const raw = String(text || '').trim();
     if (!raw) return null;
     if (raw.startsWith('eyJ')) return { type: 'readToken', value: raw };
-    // v3 Key：32 位十六进制
+
     if (/^[0-9a-f]{32}$/i.test(raw)) return { type: 'apiKey', value: raw };
     return null;
   }
@@ -124,10 +123,10 @@ function createCredentialRescue({ log = () => {}, deps = {}, electron = loadElec
       };
     };
 
-    try { ipcMain.removeHandler('tmdbAuth:grab'); } catch { /* ignore */ }
-    try { ipcMain.handle('tmdbAuth:grab', grab); } catch { /* ignore */ }
-    try { ipcMain.removeHandler('tmdbAuth:credentialState'); } catch { /* ignore */ }
-    try { ipcMain.handle('tmdbAuth:credentialState', status); } catch { /* ignore */ }
+    try { ipcMain.removeHandler('tmdbAuth:grab'); } catch {  }
+    try { ipcMain.handle('tmdbAuth:grab', grab); } catch {  }
+    try { ipcMain.removeHandler('tmdbAuth:credentialState'); } catch {  }
+    try { ipcMain.handle('tmdbAuth:credentialState', status); } catch {  }
 
     installedTargets.add(ipcMain);
     return true;

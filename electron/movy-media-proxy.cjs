@@ -21,7 +21,7 @@ function createMovyMediaProxy({ log = () => {} } = {}) {
       const { session } = require('electron');
       if (!session || typeof session.fromPartition !== 'function') return null;
       const ses = session.fromPartition('persist:movy-direct', { cache: true });
-      try { ses.setProxy({ mode: 'direct' }).catch(() => {}); } catch { /* ignore */ }
+      try { ses.setProxy({ mode: 'direct' }).catch(() => {}); } catch {  }
       return ses;
     } catch { return null; }
   }
@@ -34,7 +34,7 @@ function createMovyMediaProxy({ log = () => {} } = {}) {
       const electron = require('electron');
       const def = electron && electron.session && electron.session.defaultSession;
       if (def && typeof def.fetch === 'function' && def !== direct) list.push(def);
-    } catch { /* ignore */ }
+    } catch {  }
     return list;
   }
 
@@ -173,10 +173,10 @@ function createMovyMediaProxy({ log = () => {} } = {}) {
     if (server) return Promise.resolve(port);
     return new Promise((resolve) => {
       try {
-        server = http.createServer((req, res) => { handle(req, res).catch(() => { try { res.destroy(); } catch { /* ignore */ } }); });
+        server = http.createServer((req, res) => { handle(req, res).catch(() => { try { res.destroy(); } catch {  } }); });
         server.on('error', (error) => { log('movy 代理启动失败 · ' + (error && error.message)); server = null; resolve(0); });
         server.listen(0, '127.0.0.1', () => {
-          try { if (typeof server.unref === 'function') server.unref(); } catch { /* ignore */ }
+          try { if (typeof server.unref === 'function') server.unref(); } catch {  }
           port = server.address().port;
           log('movy 代理就绪 127.0.0.1:' + port);
           resolve(port);

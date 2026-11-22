@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const DEFAULT_DOH_ENDPOINT = process.env.CINEFLOW_DOH_ENDPOINT || 'https://arkdo.ddd.oaifree.com/query-dns';
 const DOH_TYPES = { 4: 'A', 6: 'AAAA' };
+
 const KEEP_ALIVE_HTTPS_AGENT = new https.Agent({
   keepAlive: true,
   keepAliveMsecs: 15000,
@@ -69,6 +70,7 @@ function createDohResolver(options = {}) {
   const failUntil = new Map();
   let persistTimer = null;
   let closed = false;
+
   let endpointFailures = 0;
   let endpointLastOkAt = 0;
   let endpointLastFailAt = 0;
@@ -88,7 +90,7 @@ function createDohResolver(options = {}) {
         });
       }
     } catch {
-      // best-effort
+
     }
   }
 
@@ -107,7 +109,7 @@ function createDohResolver(options = {}) {
         fs.writeFileSync(tmp, JSON.stringify(plain), 'utf8');
         fs.renameSync(tmp, cacheFile);
       } catch {
-        // best-effort
+
       }
     }, 1500);
     if (typeof persistTimer.unref === 'function') persistTimer.unref();
@@ -137,7 +139,7 @@ function createDohResolver(options = {}) {
     try {
       error.endpointReachable = reachable;
     } catch {
-      // ignore
+
     }
     return error;
   }
@@ -225,7 +227,7 @@ function createDohResolver(options = {}) {
           failUntil.set(host, Date.now() + negativeTtlMs);
           return null;
         }
-        // 换下一个 family / 交给下方负缓存与陈旧回退
+
       }
     }
     failUntil.set(host, Date.now() + negativeTtlMs);
@@ -237,6 +239,7 @@ function createDohResolver(options = {}) {
     if (!host) return null;
     const cached = memoryGet(host);
     if (cached && cached.expiresAt > Date.now()) return cached;
+
     const failedRecently = failUntil.get(host) || 0;
     if (failedRecently > Date.now() || !endpointHealthy()) return cached || null;
     const inFlight = pending.get(host);
@@ -306,7 +309,7 @@ function createDohResolver(options = {}) {
         };
         resolveRequest(response);
         req.on('error', () => {
-          try { res.destroy(); } catch { /* ignore */ }
+          try { res.destroy(); } catch {  }
         });
       });
       req.setTimeout(timeoutMs, () => req.destroy(Object.assign(new Error('DoH request timeout'), { name: 'AbortError' })));
@@ -337,8 +340,8 @@ function createDohResolver(options = {}) {
         return response;
       }
       try {
-        for await (const _ of response.nodeStream) { /* drain */ }
-      } catch { /* ignore */ }
+        for await (const _ of response.nodeStream) {  }
+      } catch {  }
       const previous = current;
       current = new URL(location, current);
       if (!['http:', 'https:'].includes(current.protocol)) {
@@ -365,12 +368,11 @@ function createDohResolver(options = {}) {
     };
   }
 
-  // 启动探测：直接查一次海报域名，既判定端点在直连下是否可达，又顺带预热海报域名解析。
   async function ping() {
     try {
       await queryDoH('image.tmdb.org', 4);
     } catch {
-      // 失败已由 queryDoH 记入健康度
+
     }
     return health();
   }

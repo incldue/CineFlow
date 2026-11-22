@@ -6,14 +6,7 @@ var __rewriteRelativeImportExtension = (this && this.__rewriteRelativeImportExte
     }
     return path;
 };
-/**
- * R6: SASRec 序列召回(可选亮点, M5) —— 缺模型时自动禁用, 主链路零依赖。
- * 兼容 ESM 与 CJS 两种运行形态(onnxruntime-node 经动态 import 加载)。
- * 部署形态: Python 离线训练(scripts/sasrec-train.py, 全 softmax 配置)导出:
- *   dataDir/sasrec/model.onnx   输入 [1, seq_len] int64 训练词表序列, 输出 [1, seq_len, hidden] 末位隐状态
- *   dataDir/sasrec/items.bin    [n][hidden] Float32 物料向量(L2 归一化), 头部 8B n, 8B hidden
- *   dataDir/sasrec/vocab.json   { seqLen, hidden, vocab: { "<训练词表idx>": <本地物料下标> } }
- */
+
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTyped } from '../store/binary.js';
@@ -26,7 +19,7 @@ export class SasRecChannel {
         this.dataDir = dataDir;
         this.state = state;
     }
-    /** 文件级探测: 三个工件齐备即认为可用; ONNX 会话在首次召回时惰性创建 */
+
     maybeInit() {
         const dir = join(this.dataDir, 'sasrec');
         const modelPath = join(dir, 'model.onnx');
@@ -66,7 +59,7 @@ export class SasRecChannel {
         if (!b.sessionPromise) {
             b.sessionPromise = (async () => {
                 try {
-                    // 可选依赖: 按变量名动态 import, 未安装时不阻塞编译与主链路
+
                     const pkg = 'onnxruntime-node';
                     const ort = await import(__rewriteRelativeImportExtension(pkg));
                     const session = new ort.InferenceSession(b.modelPath);
@@ -75,7 +68,7 @@ export class SasRecChannel {
                 }
                 catch (err) {
                     console.error('[rec-engine] sasrec session unavailable:', err.message);
-                    b.sessionPromise = null; // 允许后续重试(如依赖后装)
+                    b.sessionPromise = null;
                     return null;
                 }
             })();

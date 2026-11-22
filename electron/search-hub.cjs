@@ -1,19 +1,18 @@
 'use strict';
 
-
 const { _internals: engineInternals } = require('./source-engine.cjs');
 
-/* ---- 预算 / 并发 ---- */
 const HUB_POOL = 8;
+
 const PER_SOURCE_BUDGET_MS = 5000;
 const PER_REQUEST_TIMEOUT_MS = 6500;
 const PER_SOURCE_HITS = 8;
 const MAX_GROUPS = 80;
 
-/* ---- 缓存 ---- */
 const POSITIVE_TTL_MS = 4 * 60 * 1000;
 const NEGATIVE_TTL_MS = 90 * 1000;
 const CACHE_MAX = 40;
+
 const IMAGE_TTL_MS = 30 * 60 * 1000;
 const IMAGE_CACHE_MAX = 240;
 const IMAGE_MAX_BYTES = 6 * 1024 * 1024;
@@ -41,7 +40,7 @@ const state = {
 };
 
 function log(...args) {
-  try { state.log(...args); } catch { /* 日志自身异常不外泄 */ }
+  try { state.log(...args); } catch {  }
 }
 
 function normTitle(value) {
@@ -63,8 +62,6 @@ function normTitle(value) {
 function scoreOf(item, query) {
   try { return engineInternals.resourceCandidateScore(item, [query], ''); } catch { return -999; }
 }
-
-/* ============ 单源拉取 ============ */
 
 function buildSearchUrl(api, query) {
   const url = new URL(api);
@@ -136,8 +133,6 @@ function pickHits(source, items, query, latencyMs) {
   return hits.slice(0, PER_SOURCE_HITS);
 }
 
-/* ============ 单源执行 ============ */
-
 async function runSource(source, query, budgetMs) {
   const startedAt = Date.now();
   const data = await fetchVideolist(source, query, budgetMs);
@@ -145,8 +140,6 @@ async function runSource(source, query, budgetMs) {
   const hits = pickHits(source, data, query, latencyMs);
   return { latencyMs, hits, scanned: data.length };
 }
-
-/* ============ 缓存 ============ */
 
 function cacheKeyOf(revision, mode, query) {
   return [Number(revision || 0), String(mode || ''), String(query || '').toLowerCase()].join('|');
@@ -170,8 +163,6 @@ function writeCache(key, value, ttlMs) {
   state.cache.set(key, { ...value, expireAt: Date.now() + ttlMs, at: Date.now() });
 }
 
-/* ============ 搜索主流程 ============ */
-
 function emptySourceState(source) {
   return {
     sourceId: String(source.key || ''),
@@ -188,14 +179,14 @@ async function runSearch(event, searchId, query, settings, sources) {
   const send = (payload) => {
     if (!sender || sender.isDestroyed?.()) return;
     if (state.live.get(searchId) !== true) return;
-    try { sender.send(CHANNEL_EVENT, payload); } catch { /* 渲染层已销毁 */ }
+    try { sender.send(CHANNEL_EVENT, payload); } catch {  }
   };
 
   const cacheKey = cacheKeyOf(settings.revision, settings.mode, query);
   const cachedEntry = readCache(cacheKey);
 
   if (cachedEntry) {
-    // 命中缓存：同帧回放，渲染层拿到即完成 —— 这是「毫秒级」的主路径
+
     for (const item of cachedEntry.results) {
       send({ searchId, phase: 'source', source: item.source, hits: item.hits, cached: true });
     }
@@ -255,7 +246,7 @@ async function runSearch(event, searchId, query, settings, sources) {
   };
 
   const workers = Array.from({ length: Math.min(HUB_POOL, queue.length) }, () => worker());
-  try { await Promise.all(workers); } catch { /* 单源异常不外泄 */ }
+  try { await Promise.all(workers); } catch {  }
 
   if (state.live.get(searchId) !== true) return;
 
@@ -304,7 +295,6 @@ async function startHandler(event, payload = {}) {
     return { ok: true, searchId: 0, total: 0, sources: [], reason: 'no-sources' };
   }
 
-  // 单飞：新搜索接管，旧搜索的全部后续事件被 searchId 守卫丢弃
   state.live.clear();
   state.live.set(searchId, true);
 
@@ -361,7 +351,7 @@ function readImageCache(key) {
 
 function writeImageCache(key, value) {
   if (state.imageCache.size >= IMAGE_CACHE_MAX) {
-    // 先清过期的，再不行淘汰最旧的
+
     const now = Date.now();
     for (const [k, v] of state.imageCache) {
       if (now > v.expireAt) state.imageCache.delete(k);
@@ -455,7 +445,7 @@ async function imageHandler(_event, payload = {}) {
       return { ok: true, dataUrl: result.dataUrl, bytes: result.bytes, cached: false };
     } catch (error) {
       const reason = error && error.name === 'AbortError' ? '超时' : String((error && error.message) || '取图失败');
-      // 失败也短缓存，避免同一张坏图被反复重试打爆源站
+
       writeImageCache(key, { failed: true, error: reason });
       return { ok: false, error: reason };
     } finally {
@@ -467,8 +457,6 @@ async function imageHandler(_event, payload = {}) {
   state.imageInflight.set(key, job);
   return job;
 }
-
-/* ============ 安装 ============ */
 
 function installSearchHub({ ipcMain, session, log: logger } = {}) {
   if (state.installed) return false;

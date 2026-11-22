@@ -1,6 +1,5 @@
 'use strict';
 
-
 const fs = require('node:fs');
 const path = require('node:path');
 const cacheLayer = require('./cache-layer.cjs');
@@ -16,12 +15,13 @@ const state = {
   installed: false,
   app: null,
   session: null,
-  fetchThis: null,         
+  fetchThis: null,
   registryPath: '',
-  sourceHosts: new Set(),  
-  hostHeaders: new Map(),  
-  warmUrls: new Set(),   
+  sourceHosts: new Set(),
+  hostHeaders: new Map(),
+  warmUrls: new Set(),
   originalFetch: null,
+
   httpPreferredHosts: new Map(),
   httpFallback: { retried: 0, ok: 0 },
   originalImport: null
@@ -30,12 +30,12 @@ const state = {
 const rawFetch = (input, init) => state.originalFetch.call(state.fetchThis, input, init);
 
 const compatLog = (...args) => {
-  try { console.log('[CineFlow:Compat]', ...args); } catch { /* ignore */ }
+  try { console.log('[CineFlow:Compat]', ...args); } catch {  }
 };
 
 function registryFile() {
   if (!state.registryPath && state.app) {
-    try { state.registryPath = path.join(state.app.getPath('userData'), REGISTRY_FILE); } catch { /* ignore */ }
+    try { state.registryPath = path.join(state.app.getPath('userData'), REGISTRY_FILE); } catch {  }
   }
   return state.registryPath;
 }
@@ -54,7 +54,7 @@ function loadRegistry() {
     for (const origin of Array.isArray(raw.warmUrls) ? raw.warmUrls : []) {
       if (typeof origin === 'string' && /^https?:\/\//i.test(origin)) state.warmUrls.add(origin);
     }
-  } catch { /* 首次无文件或损坏 → 空注册表 */ }
+  } catch {  }
 }
 
 function saveRegistry() {
@@ -68,7 +68,7 @@ function saveRegistry() {
       hostHeaders: Object.fromEntries([...state.hostHeaders].slice(0, 400)),
       warmUrls: [...state.warmUrls].slice(0, 400)
     }, null, 2));
-  } catch { /* ignore */ }
+  } catch {  }
 }
 
 function registerSourceEntry(api, headers) {
@@ -80,8 +80,6 @@ function registerSourceEntry(api, headers) {
   state.warmUrls.add(`${url.protocol}//${url.host}`);
   if (headers && (headers.ua || headers.referer)) state.hostHeaders.set(host, headers);
 }
-
-/* ============ base64 / 文本工具 ============ */
 
 function maybeBase64Decode(text) {
   const compact = String(text || '').replace(/^\uFEFF/, '').trim().replace(/\s+/g, '');
@@ -117,19 +115,19 @@ function decodeSmart(buffer, contentType) {
   const declared = (/charset=([\w-]+)/.exec(ct) || [])[1] || '';
   if (declared && /gb/i.test(declared)) {
     for (const enc of [declared, 'gb18030']) {
-      try { return new TextDecoder(enc).decode(buffer); } catch { /* 引擎缺该编码则继续 */ }
+      try { return new TextDecoder(enc).decode(buffer); } catch {  }
     }
   }
   const utf8 = new TextDecoder('utf-8').decode(buffer);
   if (declared && !/^utf-?8$/i.test(declared)) return utf8;
   if (!utf8.includes('\uFFFD')) return utf8;
-  // 服务器声明 utf-8 但实际是 GBK（乱码嗅探）：取替换符更少的一种
+
   try {
     const gbk = new TextDecoder('gb18030').decode(buffer);
     const badUtf8 = (utf8.match(/\uFFFD/g) || []).length;
     const badGbk = (gbk.match(/\uFFFD/g) || []).length;
     if (badGbk < badUtf8) return gbk;
-  } catch { /* ignore */ }
+  } catch {  }
   return utf8;
 }
 
@@ -223,7 +221,7 @@ function xmlVideoToItem(videoBody, videoAttrs, baseUrl) {
 
 function xmlToVodJson(xmlText, baseUrl) {
   const xml = String(xmlText || '').replace(/<!--[\s\S]*?-->/g, '');
-  // 分页元数据在 <list page=".." recordcount=".."> 上（rss 标签上没有）
+
   const listAttrs = (/<list\b([^>]*)>/i.exec(xml) || /<rss\b([^>]*)>/i.exec(xml) || [])[1] || '';
   const listMeta = parseTagAttrs(listAttrs);
   const list = [];
@@ -245,11 +243,6 @@ function xmlToVodJson(xmlText, baseUrl) {
   };
 }
 
-/* ============ fetch 响应兼容层 ============ */
-
-// http-only 源站兼容：部分 CMS 源站 443 被重置/证书不可用而 80 正常
-// （实测内置如意 cj.rycjapi.com：https → ECONNRESET，http → 200）。
-// 已知提示域直接回退；导入源主机遇到「重置类」传输错误时自适应学习，30 分钟内直走 http。
 const HTTP_ONLY_HINT_HOSTS = new Set(['cj.rycjapi.com']);
 const HTTP_FALLBACK_TTL_MS = 30 * 60 * 1000;
 const RST_CLASS_ERROR_RE = /ERR_(?:CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_REFUSED|SSL_PROTOCOL_ERROR|EMPTY_RESPONSE|TUNNEL_CONNECTION_FAILED|PROXY_CONNECTION_FAILED)/i;
@@ -284,7 +277,6 @@ async function compatFetch(input, init) {
   }
   const host = url.hostname.toLowerCase();
 
-  // 主机头注册表：防盗链 UA/Referer 注入（分片请求与 API 请求同样生效）
   let finalInit = init;
   const headers = state.hostHeaders.get(host);
   if (headers && (headers.ua || headers.referer)) {
@@ -293,11 +285,9 @@ async function compatFetch(input, init) {
       if (headers.ua && !merged.has('user-agent')) merged.set('user-agent', headers.ua);
       if (headers.referer && !merged.has('referer')) merged.set('referer', headers.referer);
       finalInit = { ...(init || {}), headers: merged };
-    } catch { /* 头合并失败按原样发出 */ }
+    } catch {  }
   }
 
-  // 注：segment-cache 分片磁盘缓存已按「完全对齐 3.4.4 网络行为」要求撤出（不再读写响应体）。
-  // http-only 学习命中 / 已知提示域：直接用 http 双胞胎发起（省一次注定 RST 的 https 往返）
   const httpPreferred = (state.httpPreferredHosts.get(host) || 0) > Date.now();
   let requestTarget = input;
   if (url.protocol === 'https:' && (httpPreferred || HTTP_ONLY_HINT_HOSTS.has(host))) {
@@ -314,7 +304,7 @@ async function compatFetch(input, init) {
       && requestTarget === input
       && (HTTP_ONLY_HINT_HOSTS.has(host) || isRegisteredHost(host));
     if (!rstLike || !twinable) throw error;
-    // https 被「重置类」传输错误终结 → http 双胞胎重试一次（如意类 http-only 源站）
+
     const retryTarget = buildHttpTwinTarget(input, url.toString());
     if (retryTarget === null) throw error;
     state.httpFallback.retried += 1;
@@ -325,7 +315,7 @@ async function compatFetch(input, init) {
       compatLog(`http-only 回退命中: ${host}`);
       response = retried;
     } catch {
-      throw error; // 双胞胎同样失败：保留原始错误语义（与基线一致）
+      throw error;
     }
   }
   try {
@@ -339,7 +329,7 @@ async function compatFetch(input, init) {
     const gbkCt = /gb2312|gbk|gb18030/.test(lower);
     const textCt = /text\/|javascript/.test(lower) || !contentType;
     const registered = isRegisteredHost(host);
-    // 已登记源主机的 JSON 响应也嗅探：兜住「声明 json 实际给 XML」与「GBK 无 charset」两类坑
+
     if (!xmlCt && !gbkCt && !(registered && (textCt || /json/.test(lower)))) return response;
 
     const declaredLength = Number(response.headers.get('content-length') || 0);
@@ -357,7 +347,7 @@ async function compatFetch(input, init) {
       out.set('x-cineflow-compat', 'maccms-xml');
       return new Response(JSON.stringify(json), { status: response.status, statusText: response.statusText, headers: out });
     }
-    // GBK 修正（无 XML 时原样返回修正后的文本）
+
     const out = new Headers(response.headers);
     if (/charset=/i.test(String(out.get('content-type') || ''))) {
       out.set('content-type', String(out.get('content-type')).replace(/charset=[\w-]+/i, 'charset=utf-8'));
@@ -372,8 +362,6 @@ async function compatFetch(input, init) {
   }
 }
 
-/* ============ TVBox 导入 v2 ============ */
-
 function extractHeaders(entry) {
   const raw = entry && (entry.header || entry.headers);
   if (!raw || typeof raw !== 'object') return null;
@@ -387,11 +375,6 @@ function extractHeaders(entry) {
   return ua || referer ? { ua, referer } : null;
 }
 
-/* ---- AppYsV2 类爬虫源伪 JSON 化 ----
- * TVBox 生态里最大的一类 type=3 爬虫（csp_AppYsV2/AppYs）本质是 App 端点：
- * ext 字段持有 app 基址（直链 URL / base64 / JSON 配置三种形态），
- * 请求形如 {base}/api.php/app/vod?ac=videolist&wd=…、?ac=detail&ids=…，
- * 响应与 MacCMS JSON 同形 —— 解析出端点后即可当普通 JSON 源走现有管线。 */
 function decodeExtJson(value) {
   const compact = String(value || '').replace(/\s+/g, '');
   if (compact.length < 16 || !/^[A-Za-z0-9+/\-_]+={0,2}$/.test(compact)) return null;
@@ -410,16 +393,16 @@ function resolveAppYsApi(entry) {
   if (/^csp_AppYs/i.test(api)) {
     base = ext;
   } else if (/^https?:\/\//i.test(api) && /\/api\.php\/(?:app|v3)\/vod/i.test(api)) {
-    return api;                                            // api 本身已是 AppV2 端点
+    return api;
   } else {
     return null;
   }
   if (!base) return null;
   const decoded = decodeExtJson(base);
   if (decoded) {
-    try { const parsed = JSON.parse(decoded); base = String(parsed.api || parsed.url || ''); } catch { /* 保持原值 */ }
+    try { const parsed = JSON.parse(decoded); base = String(parsed.api || parsed.url || ''); } catch {  }
   } else if (base.startsWith('{')) {
-    try { const parsed = JSON.parse(base); base = String(parsed.api || parsed.url || ''); } catch { /* 保持原值 */ }
+    try { const parsed = JSON.parse(base); base = String(parsed.api || parsed.url || ''); } catch {  }
   }
   if (!/^https?:\/\//i.test(base)) return null;
   base = base.replace(/\/+$/, '');
@@ -467,10 +450,10 @@ function extractSiteArray(parsed) {
 }
 
 function extractWarehouses(parsed) {
-  // 单仓优先：带 type 的 sites/sources 存在时按单仓处理，不当作多仓
+
   const siteList = extractSiteArray(parsed);
   if (siteList && siteListHasTypes(siteList)) return [];
-  // 多仓形态：[{sourceName, sourceUrl}] / {storeHouse:[…]} / {urls:[…]} / ['url', …]
+
   let list = null;
   if (Array.isArray(parsed)) list = parsed;
   else if (parsed && typeof parsed === 'object') {
@@ -495,8 +478,7 @@ function siteListHasTypes(siteList) {
 
 async function fetchConfigText(url) {
   if (!state.session || !state.originalFetch) return null;
-  // 首个请求可能吃满系统代理冷启动（实测可达 15s+，超过基线 10s 超时）——首试放宽到 25s，
-  // 失败后重试一次，第二次走已预热的连接通常秒回
+
   const attempts = [25000, IMPORT_FETCH_TIMEOUT_MS];
   for (let attempt = 0; attempt < attempts.length; attempt += 1) {
     const controller = new AbortController();
@@ -542,7 +524,6 @@ async function translateImportPayload(raw, depth = 0) {
   const text = String(raw ?? '').replace(/^\uFEFF/, '').trim();
   if (!text || text.length > 4 * 1024 * 1024) return { passthrough: true };
 
-  // 配置地址：自己拉（不受基线内部 fetch 实现影响），拉不到则交基线走原路径报错
   if (depth < 3 && /^https?:\/\//i.test(text) && !/\s/.test(text)) {
     const fetched = await fetchConfigText(text);
     if (fetched == null) return { passthrough: true };
@@ -556,7 +537,6 @@ async function translateImportPayload(raw, depth = 0) {
   let parsed = null;
   try { parsed = JSON.parse(decoded); } catch { return { passthrough: true }; }
 
-  // 多仓：跟随拉取各仓配置后合并（深度限制防环）
   const warehouses = extractWarehouses(parsed);
   if (warehouses.length && depth < 3) {
     const merged = { entries: [], seen: new Set(), skippedSpider: 0, skippedOther: 0 };
@@ -590,11 +570,10 @@ async function translateImportPayload(raw, depth = 0) {
       error.tvboxOnly = true;
       throw error;
     }
-    // 无 type 字段的普通数组（如“名称|接口”来源的 JSON）→ 交基线
+
     return { passthrough: true };
   }
 
-  // 单对象 {name, api} 之类：基线自己就认得
   return { passthrough: true };
 }
 
@@ -610,16 +589,12 @@ function finishTranslate(merged) {
   };
 }
 
-/* ============ 播放主机防盗链登记（代理上游自动带对 Referer） ============
- * 解析器/聚合层发现「播放主机」时调用：host ← { referer: 页面/源站 origin }。
- * 仅内存登记（不落盘、不覆盖用户导入的显式头），代理上游清单/密钥/分片请求
- * 经 compatFetch 自动注入。 */
 function registerMediaHost(url, referer) {
   try {
     const host = new URL(String(url)).hostname.toLowerCase();
     if (!host || !referer) return false;
     const existing = state.hostHeaders.get(host);
-    if (existing?.referer) return false;                 // 已有显式 referer 不覆盖
+    if (existing?.referer) return false;
     state.hostHeaders.set(host, { ...(existing || {}), referer: String(referer) });
     state.warmUrls.add(`${new URL(String(url)).protocol}//${host}`);
     return true;
@@ -627,8 +602,6 @@ function registerMediaHost(url, referer) {
     return false;
   }
 }
-
-/* ============ 证书宽容（仅已导入源主机） ============ */
 
 function installCertificateTolerance(app) {
   app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
@@ -638,11 +611,9 @@ function installCertificateTolerance(app) {
     try {
       event.preventDefault();
       callback(allow);
-    } catch { /* 回调异常时保持默认拒绝 */ }
+    } catch {  }
   });
 }
-
-/* ============ 启动闲时暖连接 ============ */
 
 function scheduleWarmup(session) {
   const run = () => {
@@ -662,7 +633,7 @@ function scheduleWarmup(session) {
             cache: 'no-store',
             signal: controller.signal
           });
-        } catch { /* 暖连接失败不影响任何功能 */ }
+        } catch {  }
         finally { clearTimeout(timer); }
       }
     };
@@ -670,12 +641,6 @@ function scheduleWarmup(session) {
   };
   setTimeout(run, 9000).unref?.();
 }
-
-/* ============ 片库豆瓣路径换血：browseHint + douban:hot 改写 + rexxar 年份元数据 ============
- * 根因：基线 fetchDoubanMovies 读错属性名导致 tag 恒为「热门」，渲染层接管重绘又会闪屏。
- * 方案：注入层在捕获阶段把片库筛选状态写入 hint（先于基线请求），本处改写 douban:hot 的
- * tag —— 基线自己渲染正确列表，双渲染/闪屏从根上消失。
- * 首页豆瓣轨道指纹：pageSize===18 && pageStart===0（全应用唯一，恒「热门」，绝不改写）。 */
 
 const BROWSE_HINT_TTL_MS = 60 * 1000;
 const META_TTL_MS = 10 * 60 * 1000;
@@ -784,8 +749,7 @@ function installDoubanHotRewrite(ipcMain) {
       }
       try {
         const result = await original(event, rewritten);
-        // 稳定性兜底：改写后的 tag 在豆瓣没有结果（冷门标签/限流）时回落「热门」，
-        // 保证基线永远拿得到列表——宁可靠近热门也不出现「加载失败」
+
         const empty = !result?.ok || !Array.isArray(result?.items) || !result.items.length;
         if (tagChanged && empty) {
           compatLog(`豆瓣 tag「${rewritten.tag}」无结果，回落「${payload?.tag}」`);
@@ -795,7 +759,7 @@ function installDoubanHotRewrite(ipcMain) {
         return result;
       } catch (error) {
         if (tagChanged) {
-          try { return await original(event, payload); } catch { /* 两路都失败 → 抛第一路错误 */ }
+          try { return await original(event, payload); } catch {  }
         }
         throw error;
       }
@@ -805,10 +769,6 @@ function installDoubanHotRewrite(ipcMain) {
   }
 }
 
-/* ============ 内置播放源扩充（零触碰）============
- * 基线 RESOURCE_SOURCES 在 main.cjs 内不可改；此处包装 app:getResourceSettings，
- * 把新增源以 builtin 身份追加进 sources（片源管理面板、聚合引擎轮询、测速全部自然生效）。
- * 追加在列表尾部，不打乱「自定义源优先」的既有顺序；轮询/过滤预算维持基线不变。 */
 const EXTRA_BUILTIN_SOURCES = [
   { key: '1080zyk', name: '1080', api: 'https://api.1080zyku.com/inc/apijson.php/', modes: ['stable', 'movie', 'full'] },
   { key: 'aqyzy', name: '爱奇艺', api: 'https://iqiyizyapi.com/api.php/provide/vod/', modes: ['stable', 'movie', 'full'] },
@@ -860,13 +820,6 @@ function installExtraBuiltinSources(ipcMain) {
     compatLog('内置源扩充安装失败:', error && error.message);
   }
 }
-
-/* ============ 豆瓣原生分类（rexxar recent_hot，x1ao4/douban-api 同款底层） ============
- * 豆瓣移动端「最近热门」接口：recent_hot/{movie|tv}?start&limit&category&type
- *   movie: category ∈ 热门/最新/豆瓣高分/冷门佳片, type ∈ 全部/华语/欧美/韩国/日本
- *   tv:    category ∈ tv/show, type ∈ tv/tv_domestic/tv_american/tv_japanese/
- *          tv_korean/tv_animation/tv_documentary | show/show_domestic/show_foreign
- * 归一化为与 j/search_subjects items 同形状，供渲染层豆瓣分类直接消费。 */
 
 const RECENT_HOT_TIMEOUT_MS = 8000;
 
@@ -951,7 +904,6 @@ function installSourceCompat({ app, ipcMain, session }) {
 
   loadRegistry();
 
-  // 1. 导入 v2（立即安装：不触碰 session，ready 前也可安全装载）
   try {
     const handlers = ipcMain._invokeHandlers;
     const original = handlers.get('app:importResourceSources');
@@ -982,16 +934,12 @@ function installSourceCompat({ app, ipcMain, session }) {
     compatLog('导入 v2 安装失败:', error && error.message);
   }
 
-  // 2. 证书宽容（立即安装）
   try { installCertificateTolerance(app); } catch (error) { compatLog('证书宽容安装失败:', error && error.message); }
 
-  // 2.5 片库豆瓣路径换血：browse 通道 + douban:hot tag 改写
   try { installBrowseChannels(ipcMain); } catch (error) { compatLog('browse 通道安装失败:', error && error.message); }
   try { installDoubanHotRewrite(ipcMain); } catch (error) { compatLog('douban:hot 包装失败:', error && error.message); }
   try { installExtraBuiltinSources(ipcMain); } catch (error) { compatLog('内置源扩充失败:', error && error.message); }
 
-  // 3. fetch 响应兼容层 + 暖连接：session.defaultSession 在 ready 前不可得（Electron 33），
-  //    必须推迟到 ready；此时尚未轮到 meta-server 打补丁，链式顺序与基线一致
   try {
     (app.isReady() ? Promise.resolve() : app.whenReady()).then(() => {
       try {
@@ -1010,9 +958,9 @@ function installSourceCompat({ app, ipcMain, session }) {
       } catch (error) {
         compatLog('fetch 层安装失败（基线行为不受影响）:', error && error.message);
       }
-      try { scheduleWarmup(session); } catch { /* ignore */ }
+      try { scheduleWarmup(session); } catch {  }
     }).catch(() => {});
-  } catch { /* ignore */ }
+  } catch {  }
 
   compatLog(`已安装（导入v2 + 证书宽容；已登记源主机 ${state.sourceHosts.size} 个，带防盗链头 ${state.hostHeaders.size} 个；fetch 层待 ready）`);
   return true;
@@ -1020,7 +968,7 @@ function installSourceCompat({ app, ipcMain, session }) {
 
 module.exports = {
   installSourceCompat,
-  // 测试导出
+
   _internals: {
     maybeBase64Decode,
     decodeSmart,

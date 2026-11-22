@@ -85,7 +85,7 @@ function createMetaServer(deps) {
       fs.writeFileSync(tmp, JSON.stringify(value), 'utf8');
       fs.renameSync(tmp, file);
     } catch {
-      // best-effort
+
     }
   }
 
@@ -104,7 +104,7 @@ function createMetaServer(deps) {
     try {
       fs.mkdirSync(imgDir, { recursive: true });
     } catch {
-      // best-effort
+
     }
     const rawIndex = readJsonFile(indexFile);
     const nowMs = Date.now();
@@ -153,8 +153,7 @@ function createMetaServer(deps) {
 
   async function directRouteAllowed(urlStr) {
     if (!enabled()) return false;
-    // v3.4.0：DoH 端点不可达时彻底不接管，图片/API 走原生网络栈。
-    // 否则直连模式下每个请求都要白等 DoH 超时，海报整片空白。
+
     if (typeof doh?.health === 'function' && !doh.health().reachable) return false;
     let host = '';
     try {
@@ -215,9 +214,7 @@ function createMetaServer(deps) {
         callback(String(bodyBuffer.length), 'content-length');
       }
     };
-    // 必须是 async：真 Response.text() 返回 Promise，基线里有多处 `response.text().catch(...)`
-    // （TMDB 凭证校验、代理连通性检测、首帧预热），返回同步字符串会让它们直接抛
-    // `response.text(...).catch is not a function` —— 第三十二轮用户报的"剪贴板校验未通过"就是这个。
+
     const text = async () => bodyBuffer.toString('utf8');
     return {
       ok: status >= 200 && status < 300,
@@ -299,7 +296,7 @@ function createMetaServer(deps) {
         }
       }
     } catch {
-      // keep stale entry
+
     }
   }
 
@@ -368,7 +365,7 @@ function createMetaServer(deps) {
         const touched = new Date();
         fs.utimesSync(file, touched, touched);
       } catch {
-        // best-effort
+
       }
       return buffer;
     } catch {
@@ -395,11 +392,11 @@ function createMetaServer(deps) {
         try {
           fs.unlinkSync(path.join(imgDir, item.name));
         } catch {
-          // best-effort
+
         }
       }
     } catch {
-      // best-effort
+
     }
   }
 
@@ -422,7 +419,7 @@ function createMetaServer(deps) {
         fs.writeFileSync(file, buffer);
         pruneImgCache();
       } catch {
-        // best-effort
+
       }
     }
     return {
@@ -601,7 +598,7 @@ function createMetaServer(deps) {
           const text = await response.text();
           payloads.push(safeJsonParse(text));
         } catch {
-          // keep whatever was cached before
+
         }
       }
       lastWarmupAt = Date.now();
@@ -644,7 +641,7 @@ function createMetaServer(deps) {
         try {
           await fetchImageBytes(urlStr);
         } catch {
-          // best-effort
+
         }
       }
     };
@@ -660,11 +657,11 @@ function createMetaServer(deps) {
           imgFiles += 1;
           imgBytes += fs.statSync(path.join(imgDir, name)).size;
         } catch {
-          // ignore
+
         }
       }
     } catch {
-      // ignore
+
     }
     return {
       enabled: enabled(),
@@ -685,7 +682,7 @@ function createMetaServer(deps) {
         patchSessionFetch();
         registerImageRedirect();
       } catch {
-        // feature degrades to the original request path
+
       }
       warmup().catch(() => {});
       setInterval(() => {

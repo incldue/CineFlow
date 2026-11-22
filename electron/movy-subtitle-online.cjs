@@ -1,5 +1,4 @@
 'use strict';
-// 在线字幕：CDN 没有字幕轨时按片名去字幕站找一条（subf2m 中文可直连下载，B 站作补充）。
 
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
@@ -19,13 +18,12 @@ function decodeText(buffer) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
   catch {
     for (const charset of ['gb18030', 'big5', 'shift_jis']) {
-      try { return new TextDecoder(charset).decode(buffer); } catch { /* 下一个 */ }
+      try { return new TextDecoder(charset).decode(buffer); } catch {  }
     }
     return buffer.toString('latin1');
   }
 }
 
-// zip：只取第一个像字幕的条目，走中央目录，避开 data descriptor 的坑
 function unzipFirst(buffer, want = /\.(srt|vtt|ass|ssa)$/i) {
   if (!(buffer[0] === 0x50 && buffer[1] === 0x4b)) return null;
   let eocd = -1;
@@ -76,7 +74,6 @@ async function request(url, { headers = {}, timeout = TIMEOUT_MS } = {}) {
   } finally { clearTimeout(timer); }
 }
 
-// subf2m 对连发请求敏感：排队 + 间隔 + 重试，宁可慢一点也别被限流
 let subf2mQueue = Promise.resolve();
 let subf2mLastAt = 0;
 function subf2mFetch(url, options = {}) {
@@ -178,7 +175,7 @@ async function searchSubf2m(context, log) {
   try { langs = await subf2mLanguages(slug); }
   catch (error) { log && log('在线字幕 subf2m 语言页失败: ' + ((error && error.message) || error)); return []; }
   const order = ['chinese-bg-code', 'chinese-simplified', 'chinese-traditional', 'chinese', 'english', 'japanese', 'korean'];
-  // 按中文优先的顺序逐个试，拿到一条就收工（并行会触发限流，反而更慢）
+
   const usable = order.filter((code) => langs.includes(code)).slice(0, 4);
   const found = [];
   for (const lang of usable) {
@@ -187,7 +184,7 @@ async function searchSubf2m(context, log) {
       if (!items.length) continue;
       found.push({ source: 'subf2m', slug, lang, label: LANG_LABELS[lang] || lang, path: items[0] });
       break;
-    } catch { /* 下一个语言 */ }
+    } catch {  }
   }
   return found;
 }
@@ -236,7 +233,7 @@ async function searchBilibili(context) {
         if (!sub.subtitle_url) continue;
         out.push({ source: 'bilibili', bvid, cid, lang: sub.lan || '', label: sub.lan_doc || sub.lan || 'B 站字幕', url: sub.subtitle_url });
       }
-    } catch { /* 换下一个视频 */ }
+    } catch {  }
     if (out.length >= 2) break;
   }
   return out;

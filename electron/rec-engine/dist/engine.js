@@ -1,8 +1,3 @@
-/**
- * RecEngine 门面: 统一 init / track / recommend / rebuild / metrics。
- * 既能 import 后嵌进程使用(库模式, 适合 Electron main 进程),
- * 也能经 server.ts 起 HTTP 服务。
- */
 import { join } from 'node:path';
 import { loadConfig, tierOf } from './config.js';
 import { FileStore } from './store/file-store.js';
@@ -27,7 +22,7 @@ export class RecEngine {
         this.cfg = loadConfig(configPath ?? join(dataDir, '..', 'config', 'weights.json'));
         this.store = new FileStore(dataDir);
     }
-    /** 初始化: 加载物料/事件/工件; 工件缺失时自动重建 */
+
     init() {
         const items = this.store.loadItems();
         const events = this.store.loadEvents();
@@ -35,8 +30,7 @@ export class RecEngine {
         this.buildState(items, events, onboarding, { buildIfMissing: true });
         return this;
     }
-    // ---------- 写路径 ----------
-    /** 批量埋点上报: 追加文件 + 增量更新内存(画像缓存失效, 热度增量) */
+
     track(events) {
         const now = Date.now();
         for (const e of events) {
@@ -63,11 +57,11 @@ export class RecEngine {
                 p.lastTs = Math.max(p.lastTs, ts);
                 this.state.popularity.set(e.itemId, p);
             }
-            this.state.profiles.delete(e.userId); // 下次按需重建
+            this.state.profiles.delete(e.userId);
         }
-        this.cache.clear(); // 行为变化, 推荐缓存整体失效
+        this.cache.clear();
     }
-    /** 新用户 onboarding 兴趣类型(冷启动主信号) */
+
     setOnboarding(userId, genres) {
         const map = this.store.loadOnboarding();
         map.set(userId, genres);
@@ -76,7 +70,7 @@ export class RecEngine {
         this.state.profiles.delete(userId);
         this.cache.clear();
     }
-    /** 物料入库/更新(增量); 向量与协同矩阵在下次 rebuild 时纳入 */
+
     upsertItems(items) {
         const byId = new Map(this.state.items.map((i) => [i.id, i]));
         for (const it of items)
@@ -87,7 +81,7 @@ export class RecEngine {
         this.state.itemIdToIdx = new Map(all.map((it, i) => [it.id, i]));
         this.cache.clear();
     }
-    // ---------- 读路径 ----------
+
     recommend(req) {
         return this.recommendInner(req);
     }
@@ -125,7 +119,7 @@ export class RecEngine {
             tookMs: +(performance.now() - t0).toFixed(2),
         };
     }
-    /** 详情页相似影片(可传 userId 以排除其已看) */
+
     async similarItems(itemId, size = 12, excludeIds, userId) {
         const resp = await this.recommend({
             userId: userId ?? '__anchor__',
@@ -136,7 +130,7 @@ export class RecEngine {
         });
         return resp.items;
     }
-    /** 在线指标日报(近 24h) */
+
     metrics() {
         const now = Date.now();
         const cutoff = now - 86_400_000;
@@ -178,7 +172,7 @@ export class RecEngine {
             events: this.state.events.length,
         };
     }
-    /** 离线重建全部工件(热度/ItemCF/TF-IDF/向量索引) */
+
     rebuild() {
         const t0 = performance.now();
         const onboarding = this.store.loadOnboarding();
@@ -192,15 +186,15 @@ export class RecEngine {
     get config() {
         return this.cfg;
     }
-    /** 当前物料目录(只读) */
+
     get catalog() {
         return this.state.items;
     }
-    /** 清空推荐结果缓存(离线评估切换模型权重时用) */
+
     clearCache() {
         this.cache.clear();
     }
-    // ---------- 内部 ----------
+
     async runPipeline(req, scene, profile, tier) {
         const now = Date.now();
         const excludeIds = new Set(profile.itemWeights.keys());
@@ -212,7 +206,7 @@ export class RecEngine {
             excludeIds.add(req.anchorItemId);
         const session = sessionItems(this.state.events, req.userId, now, this.cfg.sessionWindowMin);
         const ctx = { userId: req.userId, scene, request: req, profile, tier, sessionItems: session, excludeIds };
-        // 各路并发召回, 单路失败不拖垮整体
+
         const results = await Promise.all(this.channels.map(async (ch) => {
             try {
                 return await ch.recall(ctx);
@@ -231,7 +225,7 @@ export class RecEngine {
     weightsFor(scene, tier) {
         const sceneW = this.cfg.sceneWeights[scene];
         if (sceneW && scene !== 'home') {
-            // 场景权重与实时路取 max(会话兴趣在任何场景都有价值)
+
             return {
                 itemcf: Math.max(sceneW.itemcf, tier === 'new' ? 0 : 0.3),
                 content: Math.max(sceneW.content, tier === 'new' ? 0 : 0.3),
@@ -246,7 +240,7 @@ export class RecEngine {
     getProfile(userId) {
         const cached = this.state.profiles.get(userId);
         if (cached) {
-            // LRU 刷新
+
             this.state.profiles.delete(userId);
             this.state.profiles.set(userId, cached);
             return cached;
@@ -263,7 +257,7 @@ export class RecEngine {
     buildState(items, events, onboarding, opts = {}) {
         const now = Date.now();
         const itemIdToIdx = new Map(items.map((it, i) => [it.id, i]));
-        // 用户事件倒排(画像构建用)
+
         this.userEvents = new Map();
         for (const e of events) {
             let list = this.userEvents.get(e.userId);
@@ -274,7 +268,7 @@ export class RecEngine {
             list.push(e);
         }
         const popularity = buildPopularity(events, now, this.cfg.trendingTauHours);
-        // 工件: 尝试加载, 缺失/强制时重建
+
         const icfPath = this.store.artifactPath('itemcf.bin');
         let itemcf = opts.force ? null : loadItemCF(icfPath);
         if (!itemcf && opts.buildIfMissing && items.length > 0) {
@@ -283,7 +277,7 @@ export class RecEngine {
             saveItemCF(itemcf, icfPath);
         }
         if (itemcf && itemcf.n !== items.length)
-            itemcf = null; // 物料数变化 → 失效重建
+            itemcf = null;
         const tfPath = this.store.artifactPath('tfidf.bin');
         let tfidf = opts.force ? null : loadTfidf(tfPath);
         if (!tfidf && opts.buildIfMissing && items.length > 0) {

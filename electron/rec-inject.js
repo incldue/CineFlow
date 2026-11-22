@@ -1,20 +1,18 @@
-
 (() => {
   if (window.__cfRecV1) return;
   window.__cfRecV1 = true;
 
   const TAG = '[CineFlow:Rec]';
-  const api = window.cineflowRec || null;         
-  const cf = window.cineflow || null;   
+  const api = window.cineflowRec || null;
+  const cf = window.cineflow || null;
   const TMDB_IMG = 'https://image.tmdb.org/t/p';
   const SEED_FLAG = 'cineflow:rec:v1';
-  const FINISHED_RATIO = 0.96;            
+  const FINISHED_RATIO = 0.96;
   const HOME_PAGE_SIZE = 24;
 
-  const log = (...a) => { try { console.debug(TAG, ...a); } catch { /* noop */ } };
+  const log = (...a) => { try { console.debug(TAG, ...a); } catch {  } };
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  /* ============ 1. 切页流畅度 ============ */
   try {
     const style = document.createElement('style');
     style.id = 'cf-rec-perf-style';
@@ -23,7 +21,8 @@
       body.cf3-switching .cf3-page { will-change: opacity; }
     `;
     (document.head || document.documentElement).appendChild(style);
-  } catch { /* noop */ }
+  } catch {  }
+
   {
     let last = performance.now();
     let longFrames = 0;
@@ -50,13 +49,12 @@
             log('检测到持续掉帧, 已启用动效降级');
           }
         }
-      } catch { /* noop */ }
+      } catch {  }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   }
 
-  /* ============ 2. 闲时预热 ============ */
   const idle = (cb, timeout) => {
     if (window.requestIdleCallback) window.requestIdleCallback(cb, { timeout: timeout || 4000 });
     else setTimeout(cb, timeout || 3000);
@@ -67,26 +65,27 @@
     prewarmed = true;
     idle(() => {
       try {
-        // 片库页默认筛选组合(popularity/all/不限) + 豆瓣热门 —— 命中主进程缓存, 首次切页直出
+
         Promise.allSettled([
           cf.discoverMovies && cf.discoverMovies({ sortBy: 'popularity.desc', page: 1 }),
           cf.discoverMovies && cf.discoverMovies({ sortBy: 'popularity.desc', minVotes: 120, page: 1 }),
           window.cineflowDouban && window.cineflowDouban.hot && window.cineflowDouban.hot({}),
         ]).catch(() => {});
-      } catch { /* noop */ }
+      } catch {  }
       try {
         document.querySelectorAll('.cf3-page img, .movie-rail img').forEach((img) => {
           if (!img.complete && img.getAttribute('src')) img.decode && img.decode().catch(() => {});
         });
-      } catch { /* noop */ }
+      } catch {  }
     }, 4000);
   }
+
   function startSearchRescue() {
     const douban = window.cineflowDouban;
     if (!douban || typeof douban.search !== 'function') return;
-    const attemptAt = new Map();   // query -> 上次尝试时间(10 分钟内不重复请求)
-    const resultCache = new Map(); // query -> 豆瓣结果(重渲染时即时回填)
-    const imageCache = new Map();  // 封面 url -> base64 data url
+    const attemptAt = new Map();
+    const resultCache = new Map();
+    const imageCache = new Map();
     let busy = false;
     let rescueTimer = 0;
     let pendingQuery = '';
@@ -117,6 +116,7 @@
         <h3>${esc(item.title)}</h3>
         <p>${esc(item.year || '豆瓣条目')}</p>
       `;
+
       card.__cf8Item = {
         id: item.id,
         title: item.title,
@@ -141,7 +141,7 @@
       return card;
     };
 
-    let credConfiguredFlag = null; // 本次救援时实测的凭证状态(null=未知)
+    let credConfiguredFlag = null;
 
     const renderResults = (rail, items) => {
       const frag = document.createDocumentFragment();
@@ -170,7 +170,7 @@
       if (busy) return;
       busy = true;
       try {
-        // 凭证状态(快 IPC): 决定空态提示文案是否带"去配置"
+
         try {
           const state = await Promise.resolve(cf && cf.getCredentialState ? cf.getCredentialState() : null);
           credConfiguredFlag = Boolean(state && state.configured);
@@ -183,7 +183,7 @@
         ]);
         const rail = document.getElementById('searchRail');
         if (!rail) return;
-        if (rail.querySelector('.movie-card:not([data-cf8-douban])')) return; // TMDB 结果已回来, 让位
+        if (rail.querySelector('.movie-card:not([data-cf8-douban])')) return;
         const mv = (movies && movies.ok && movies.items) || [];
         const tv = (shows && shows.ok && shows.items) || [];
         const mixed = [];
@@ -196,7 +196,7 @@
         if (resultCache.size > 50) resultCache.delete(resultCache.keys().next().value);
         renderResults(rail, mixed);
         log(`搜索救援: "${query}" → ${mixed.length} 条豆瓣结果`);
-      } catch { /* noop */ } finally {
+      } catch {  } finally {
         busy = false;
       }
     }
@@ -210,18 +210,18 @@
         if (section.classList.contains('is-hidden')) return;
         const query = String(input.value || '').trim();
         if (!query) return;
-        if (rail.querySelector('.movie-card')) return;               // 已有结果(含已救援的豆瓣卡)
-        if (!rail.querySelector('.empty-state')) return;             // 只在空态时介入
+        if (rail.querySelector('.movie-card')) return;
+        if (!rail.querySelector('.empty-state')) return;
         const cached = resultCache.get(query);
         if (cached && cached.length) {
-          renderResults(rail, cached);                               // 同词重渲染: 缓存即时回填
+          renderResults(rail, cached);
           return;
         }
         const prev = attemptAt.get(query);
         if (prev && Date.now() - prev < 10 * 60 * 1000) return;
         attemptAt.set(query, Date.now());
         if (attemptAt.size > 50) attemptAt.delete(attemptAt.keys().next().value);
-        // 500ms 防抖: 输入过程中的部分词("流浪"→"流浪地")不打豆瓣
+
         clearTimeout(rescueTimer);
         pendingQuery = query;
         rescueTimer = setTimeout(() => {
@@ -229,7 +229,7 @@
           pendingQuery = '';
           if (q) rescue(q);
         }, 500);
-      } catch { /* noop */ }
+      } catch {  }
     }
 
     setInterval(check, 600);
@@ -241,14 +241,12 @@
   }
   startSearchRescue();
 
-  /* 引擎不可用时: 性能与搜索救援部分已生效, 仅停用采集/迁移/推荐输出 */
   if (!api) {
     log('cineflowRec 桥不可用, 仅启用切页性能优化');
     prewarm();
     return;
   }
 
-  /* ============ 3. 行为采集 ============ */
   const readLS = (key) => {
     try {
       const raw = localStorage.getItem(key);
@@ -262,7 +260,7 @@
   const sendQueue = [];
   function send(type, info, ts) {
     info = info || {};
-    // key-only 事件(如 likedMovieIds diff)从 key 解析出物料信息
+
     if (!info.isDouban && !Number.isFinite(info.id) && /^(movie|tv):\d+$/.test(String(info.key || ''))) {
       const parts = String(info.key).split(':');
       info.mediaType = parts[0];
@@ -288,7 +286,6 @@
     }
   }
 
-  // 详情元数据按需补全(点击卡片只有标题/海报; 补全后物料才有类型/简介可供内容召回)
   const enriched = new Set();
   const enrichQueue = [];
   let enrichBusy = false;
@@ -332,7 +329,6 @@
       });
   }
 
-  // 卡片点击: window 捕获阶段(应用委托在 document 冒泡, 互不干扰)
   const recentClicks = new Set();
   let lastDetailKey = '';
   let lastDetailAt = 0;
@@ -376,12 +372,11 @@
           lastDetailKey = key;
           lastDetailAt = Date.now();
         }
-      } catch { /* noop */ }
+      } catch {  }
     },
     true,
   );
 
-  // localStorage 偏好/历史 diff → 事件流
   const LS_PREFS = 'cineflow:prefs';
   const LS_HISTORY = 'cineflow:history:v3';
   let lastPrefsRaw = localStorage.getItem(LS_PREFS) || '';
@@ -444,12 +439,11 @@
         lastHistoryRaw = historyRaw;
         if (next) diffHistory(prev, next);
       }
-    } catch { /* noop */ }
+    } catch {  }
   }
   setInterval(watchStorage, 2500);
   window.addEventListener('storage', watchStorage);
 
-  /* ============ 4. 存量偏好迁移（仅一次） ============ */
   function seedIfNeeded() {
     try {
       if (localStorage.getItem(SEED_FLAG)) return;
@@ -473,7 +467,7 @@
       }
       const genreNames = {};
       const cards = [];
-      // 偏好项缺元数据的用 getMovieDetails 补全(命中主进程缓存), 否则推荐结果无法映射回卡片
+
       const enrichSeed = async () => {
         for (const entry of keyList.slice(0, 40)) {
           try {
@@ -493,7 +487,7 @@
                 genres: (details.genres || []).map((g) => g.name).filter(Boolean),
               });
             }
-          } catch { /* 单条失败忽略 */ }
+          } catch {  }
         }
       };
       const run = Promise.resolve(cf && cf.getInitialData ? cf.getInitialData() : null)
@@ -511,11 +505,10 @@
         })
         .catch((err) => log('seed 失败(下次重试):', err && err.message));
       void run;
-    } catch { /* noop */ }
+    } catch {  }
   }
 
-  /* ============ 5. 推荐输出增强 ============ */
-  const recCardMap = new Map(); // contentKey → 卡片对象(供 renderer.js movieFromCard 1 行桥查询)
+  const recCardMap = new Map();
   window.__cineflowRecCard = (key) => recCardMap.get(String(key)) || null;
 
   function imageUrl(path, size) {
@@ -546,7 +539,6 @@
     return card;
   }
 
-  // —— 首页"为你推荐" ——
   let homePage = 1;
   let homeBusy = false;
   let homeHasMore = true;
@@ -567,13 +559,13 @@
   async function refreshHomeRail(force) {
     const rail = document.getElementById('personalizedRail');
     if (!rail || homeBusy) return;
-    if (!force && rail.childElementCount === 0) return; // 等应用先渲染
+    if (!force && rail.childElementCount === 0) return;
     homeBusy = true;
     try {
       homePage = 1;
       const resp = await api.home({ size: HOME_PAGE_SIZE, page: 1 });
       const cards = (resp && resp.cards) || [];
-      if (cards.length < 4) return; // 引擎信号不足 → 保留原生推荐
+      if (cards.length < 4) return;
       const frag = document.createDocumentFragment();
       for (const m of cards) frag.appendChild(makeCard(m));
       rail.innerHTML = '';
@@ -590,7 +582,7 @@
         moreBtn.onclick = () => loadMoreHome(moreBtn, rail);
       }
       log(`为你推荐已更新(${cards.length} 条, tier=${resp.coldTier})`);
-    } catch { /* noop */ } finally {
+    } catch {  } finally {
       homeBusy = false;
     }
   }
@@ -616,12 +608,11 @@
       btn.hidden = !homeHasMore;
       btn.disabled = false;
       btn.textContent = '加载更多';
-    } catch { /* noop */ } finally {
+    } catch {  } finally {
       homeBusy = false;
     }
   }
 
-  // 观察应用对 rail 的原生渲染 → 空闲后用引擎结果增强(我们自己的替换不会触发再次增强)
   function observeHomeRail() {
     const rail = document.getElementById('personalizedRail');
     if (!rail) {
@@ -631,7 +622,7 @@
     let timer = 0;
     new MutationObserver(() => {
       if (homeBusy) return;
-      // 用户已通过"加载更多"展开我们的列表 → 不再重刷
+
       if (rail.querySelectorAll('.movie-card').length > HOME_PAGE_SIZE) return;
       if (railSig(rail) === lastSwapSig) return;
       clearTimeout(timer);
@@ -640,7 +631,6 @@
     setTimeout(() => refreshHomeRail(false), 3000);
   }
 
-  // —— 详情页"更多相似推荐" ——
   function observeDetailPanel() {
     const panel = document.getElementById('detailContent');
     if (!panel) {
@@ -658,7 +648,7 @@
 
   async function enhanceDetailSimilar(rail) {
     try {
-      // 仅当最近一次详情打开来自卡片点击(有可靠锚点), 英雄区"查看介绍"路径保持原生
+
       if (!lastDetailKey || Date.now() - lastDetailAt > 90000) return;
       const resp = await api.similar(lastDetailKey, { size: 12 });
       const cards = (resp && resp.cards) || [];
@@ -669,10 +659,9 @@
       rail.appendChild(frag);
       rail.dataset.cfRecDone = '1';
       log(`详情相似已增强(${cards.length} 条, 锚点 ${lastDetailKey})`);
-    } catch { /* noop */ }
+    } catch {  }
   }
 
-  /* ============ 启动 ============ */
   prewarm();
   seedIfNeeded();
   observeHomeRail();
@@ -680,20 +669,13 @@
   log('渲染层增强已装载');
 })();
 
-/* ============================================================
- * v3.4.6 起播预热扩展（独立 IIFE，幂等；与上方推荐增强互不影响）
- *   1. 详情页资源卡扩展预热：多线路 × 前几集（基线只深暖第一线路第一集）
- *   2. 切集预热：点资源卡任意一集 → 预热同线路后续 2 集；播放器内切集沿用同线路上下文
- * 全部经基线 media:prewarm 通道（cineflowFast），主进程侧自带去重与深/浅分级。
- * ============================================================ */
 (() => {
   if (window.__cfPrewarmV2) return;
   window.__cfPrewarmV2 = true;
   const bridge = window.cineflowFast;
   if (!bridge || typeof bridge.prewarmMedia !== 'function') return;
-  const log = (...a) => { try { console.debug('[CineFlow:Prewarm]', ...a); } catch { /* noop */ } };
+  const log = (...a) => { try { console.debug('[CineFlow:Prewarm]', ...a); } catch {  } };
 
-  // —— 1) 详情页资源卡扩展预热 ——
   let sweepTimer = 0;
   let lastSig = '';
   const collectUrls = () => {
@@ -720,7 +702,7 @@
     const sig = urls.join('|');
     if (sig === lastSig) return;
     lastSig = sig;
-    // deepCount=1：与基线深预热(第1条)合计用满主进程上限 2；顺序保证第 2 集优先转深
+
     bridge.prewarmMedia(urls, 1).catch(() => {});
     log('扩展预热', urls.length, '条');
   };
@@ -735,7 +717,6 @@
   };
   armSweep();
 
-  // —— 2) 切集预热 ——
   let lastLineButtons = null;
   let lastLineAt = 0;
   const prewarmNext = (buttons, fromIndex) => {
@@ -763,7 +744,7 @@
       }
       return;
     }
-    // 播放器内切集：按钮不带 URL，用最近一次资源卡线路的按钮序列兜底
+
     const playerBtn = target.closest('.player-episode-button');
     if (playerBtn && lastLineButtons && Date.now() - lastLineAt < 10 * 60 * 1000) {
       const index = Number(playerBtn.getAttribute('data-player-episode-index')) || 0;
@@ -773,24 +754,14 @@
   log('起播预热扩展已装载');
 })();
 
-/* ============================================================
- * v3.4.6 豆瓣兜底修剪模式 + TVBox 线路弹窗（独立 IIFE，幂等）
- *   A. 片库豆瓣路径已由主进程 douban:hot tag 改写换血（基线自己渲染正确列表），
- *      本 IIFE 只做「修剪」：年份补写（rexxar 元数据）、年份不符隐藏、排序 DOM 重排
- *      —— 全程无 innerHTML 清空，零闪屏。
- *   B. 资源卡新增「线路」按钮与弹窗（纯新增，不改基线任何可见元素）：
- *      照抄 cf8-sheet 玻璃体系 + 复用 .cf21-line/.cf21-ep 行样式，
- *      列出该资源可见线路×集数，点击经 __cineflowOpenResourcePlayer 原payload 播放。
- * ============================================================ */
 (() => {
   if (window.__cfSilkV3) return;
   window.__cfSilkV3 = true;
   const db = window.cineflowDouban || null;
   const rec = window.cineflowRec || null;
-  const log = (...a) => { try { console.debug('[CineFlow:Silk]', ...a); } catch { /* noop */ } };
+  const log = (...a) => { try { console.debug('[CineFlow:Silk]', ...a); } catch {  } };
   const httpRe = /^https?:\/\//i;
 
-  /* ---------- A1. 筛选状态读取 + hint 同步（捕获阶段，先于基线请求） ---------- */
   const readLibFilters = () => {
     const grid = document.querySelector('.cf3-grid');
     if (!grid) return null;
@@ -811,8 +782,7 @@
     if (!chip) return;
     const grid = document.querySelector('.cf3-grid');
     if (!grid || !grid.closest('.cf3-library')) return;
-    // 关键：捕获阶段基线还没把 is-on 切到新芯片，直接读 DOM 会拿到旧状态（分类错误根因）。
-    // 正确做法：以被点击芯片覆盖对应维度，其余维度取当前 DOM 状态。
+
     const filters = readLibFilters();
     if (!filters) return;
     const text = chip.textContent.trim();
@@ -830,7 +800,6 @@
     schedulePrune(900);
   }, true);
 
-  /* ---------- A2. 年份元数据（rexxar，主进程缓存） ---------- */
   const metaWaiters = new Map();
   async function getYearMap(type, tag) {
     if (!rec?.doubanMeta) return null;
@@ -856,7 +825,6 @@
     }
   }
 
-  /* ---------- A3. 修剪：年份过滤（隐藏/恢复）+ 排序（appendChild 重排，无重绘） ---------- */
   let pruneToken = 0;
   let pruneBusy = false;
   async function pruneLibrary() {
@@ -882,10 +850,9 @@
           applyYearMeta(cards, m);
           applyYearMeta(cards, t);
         }
-      } catch { /* 元数据失败 → 年份降级不猜 */ }
+      } catch {  }
     }
 
-    // 年份过滤：已知年份且不符 → 隐藏；未知年份保持显示（降级不误杀）
     if (filters.year === '2000~' || /^\d{4}$/.test(filters.year)) {
       for (const card of cards) {
         const year = String(card.__cf8Item?.year || '');
@@ -896,7 +863,6 @@
       for (const card of cards) card.style.display = '';
     }
 
-    // 排序：appendChild 重排现有节点（无 innerHTML，零闪屏）
     if (filters.sort === '评分' || filters.sort === '最新' || filters.sort === '最早') {
       const sorted = cards.slice().sort((a, b) => {
         if (filters.sort === '评分') return (Number(b.__cf8Item?.rating) || 0) - (Number(a.__cf8Item?.rating) || 0);
@@ -924,10 +890,6 @@
   };
   armPrune();
 
-  /* ---------- A3.5 豆瓣原生分类行（x1ao4/douban-api 同款 recent_hot 体系） ----------
-   * 豆瓣兜底形态下接管类型行：TMDB 类型词换成豆瓣自己的榜单/地区/剧种分类。
-   * 点击 → rec:doubanRecentHot 拉取 → 单渲染进网格（chip 为注入层所有，基线不重渲）；
-   * 同步 browseHint，媒体页签/FAB 触发的基线重载经主进程 tag 改写保持同语义。 */
   const DOUBAN_CATEGORIES = {
     movie: [
       { label: '热门', kind: 'movie', category: '热门', type: '全部' },
@@ -957,9 +919,8 @@
       { label: '热门综艺', kind: 'show', category: 'show', type: 'show' }
     ]
   };
-  let doubanCategory = null;   // 当前选中的豆瓣分类 {label, kind, category, type}
+  let doubanCategory = null;
 
-  /* 海报装载：豆瓣 CDN 需要中转（与基线 queuePoster 同机制），并发池 3 */
   let posterQueue = [];
   let posterActive = 0;
   function loadDoubanPoster(card, url) {
@@ -985,7 +946,7 @@
           ph.replaceWith(img);
         }
       }
-    } catch { /* noop */ }
+    } catch {  }
     finally {
       posterActive -= 1;
       pumpPoster();
@@ -1035,7 +996,7 @@
     if (!rec?.doubanRecentHot) return;
     try {
       const result = await rec.doubanRecentHot({ kind: entry.kind, category: entry.category, type: entry.type, start: 0, limit: 50 });
-      if (!result?.ok || !result.items?.length) return;    // 拉不到 → 保持现有内容
+      if (!result?.ok || !result.items?.length) return;
       renderDoubanCards(grid, result.items, entry.label);
       schedulePrune(300);
     } catch (error) {
@@ -1047,17 +1008,17 @@
     const filters = readLibFilters();
     if (!filters) return;
     const { grid } = filters;
-    if (!grid.querySelector('[data-cf8-douban]') && !grid.querySelector('.cf3-empty')) return;   // 只管豆瓣形态
+    if (!grid.querySelector('[data-cf8-douban]') && !grid.querySelector('.cf3-empty')) return;
     if (!rec?.doubanRecentHot) return;
     const styleRow = filters.grid.closest('.cf3-library')?.querySelector('.cf3-styles');
     if (!styleRow) return;
     const media = filters.media === '节目' ? 'tv' : (filters.media === '电影' ? 'movie' : 'all');
     const categories = DOUBAN_CATEGORIES[media] || DOUBAN_CATEGORIES.all;
-    // 守卫双条件：标记匹配 且 行内确实还是我的芯片（基线 renderControls 重建后必须重新接管）
+
     if (styleRow.dataset.cf9Genres === media && styleRow.querySelector('.cf3-chip[data-cf9]')) return;
     styleRow.dataset.cf9Genres = media;
     styleRow.innerHTML = '';
-    // 恢复上一次选中的豆瓣分类（若属于本页签），否则默认第一个
+
     if (!doubanCategory || !categories.some((entry) => entry.label === doubanCategory.label)) {
       doubanCategory = categories[0];
     }
@@ -1074,7 +1035,7 @@
           styleRow.querySelectorAll('.cf3-chip').forEach((c) => c.classList.remove('is-on'));
           chip.classList.add('is-on');
         }
-        // 同步 hint：基线媒体/FAB 重载时 tag 语义与豆瓣分类一致
+
         rec?.setBrowseHint?.({
           media: media === 'tv' ? 'tv' : (media === 'movie' ? 'movie' : 'all'),
           genre: entry.label === '综合' ? '' : entry.label,
@@ -1085,8 +1046,7 @@
       });
       styleRow.appendChild(chip);
     }
-    // 体验补强：接管完成时网格还是基线渲染的内容（无本层标记）→ 自动加载当前选中分类，
-    // 保证「标签出现的同时列表就是该分类」；本层已渲染（用户点击后）不重复拉取
+
     if (!grid.querySelector('[data-cf9="1"]')) {
       loadDoubanCategory(grid, doubanCategory);
     }
@@ -1104,7 +1064,6 @@
   };
   armGenreRow();
 
-  /* ---------- A4. 卡片类型标签同步（dataset + 可见 score-pill 文本） ---------- */
   const syncCardMediaType = (root) => {
     root.querySelectorAll?.('.movie-card[data-cf8-douban]').forEach((card) => {
       const item = card.__cf8Item;

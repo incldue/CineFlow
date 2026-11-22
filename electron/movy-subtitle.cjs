@@ -1,5 +1,4 @@
 'use strict';
-// 字幕：取 VTT/SRT（带 Referer）、解析 cue、缺轨时探测、按需翻译（结果落盘）。
 
 const fsp = require('node:fs');
 const path = require('node:path');
@@ -79,7 +78,6 @@ function parseTimecode(value) {
   return hours * 3600 + minutes * 60 + seconds + ms / 1000;
 }
 
-// 只认「时间行 + 文本行」这一种结构：VTT 与 SRT 都能吃，NOTE/STYLE/REGION 直接丢。
 function parseCues(text) {
   const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/);
   const cues = [];
@@ -161,12 +159,12 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
       const { session } = require('electron');
       if (session && typeof session.fromPartition === 'function') {
         const direct = session.fromPartition('persist:movy-direct', { cache: true });
-        try { direct.setProxy({ mode: 'direct' }).catch(() => {}); } catch { /* ignore */ }
+        try { direct.setProxy({ mode: 'direct' }).catch(() => {}); } catch {  }
         if (direct && typeof direct.fetch === 'function') list.push(direct);
         const def = session.defaultSession;
         if (def && typeof def.fetch === 'function' && def !== direct) list.push(def);
       }
-    } catch { /* ignore */ }
+    } catch {  }
     return list;
   }
 
@@ -176,7 +174,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
     const headers = { 'user-agent': UA, referer: REFERER, origin: ORIGIN, accept: '*/*' };
     let lastError = null;
     for (const ses of list) {
-      const timer = setTimeout(() => { try { lastError = lastError || new Error('timeout'); } catch { /* ignore */ } }, timeoutMs);
+      const timer = setTimeout(() => { try { lastError = lastError || new Error('timeout'); } catch {  } }, timeoutMs);
       try {
         const response = await ses.fetch.call(ses, url, { method: 'GET', headers, redirect: 'follow' });
         if (response && response.ok) return await response.text();
@@ -202,7 +200,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
   function writeCueDisk(url, payload) {
     const file = diskCuePath(url);
     if (!file || !ensureDir()) return;
-    try { fsp.writeFileSync(file, JSON.stringify(payload), 'utf8'); } catch { /* ignore */ }
+    try { fsp.writeFileSync(file, JSON.stringify(payload), 'utf8'); } catch {  }
   }
 
   function translateDiskPath() { return dir ? path.join(dir, 'translate.json') : ''; }
@@ -220,7 +218,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
           if (typeof value === 'string' && value) translations.set(key, value);
         }
       }
-    } catch { /* ignore */ }
+    } catch {  }
   }
 
   let saveTimer = null;
@@ -239,7 +237,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
           count += 1;
         }
         fsp.writeFileSync(file, JSON.stringify(out), 'utf8');
-      } catch { /* ignore */ }
+      } catch {  }
     }, 2500);
     if (saveTimer && typeof saveTimer.unref === 'function') saveTimer.unref();
   }
@@ -248,7 +246,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
     const source = encodeURIComponent(from || 'auto');
     const target = encodeURIComponent(to || 'zh-CN');
     const payload = encodeURIComponent(text);
-    // 顺序按「国内可达性」排：MyMemory 免密钥且国内可直连，Google 两个端点只作补充
+
     const endpoints = [
       'https://api.mymemory.translated.net/get?langpair=' + source + '%7C' + target + '&q=' + payload,
       'https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=' + source + '&tl=' + target + '&q=' + payload,
@@ -272,7 +270,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
   async function tryTranslateUrl(url, list) {
     for (const ses of list) {
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timer = setTimeout(() => { try { controller && controller.abort(); } catch { /* ignore */ } }, TRANSLATE_TIMEOUT_MS);
+      const timer = setTimeout(() => { try { controller && controller.abort(); } catch {  } }, TRANSLATE_TIMEOUT_MS);
       try {
         const response = await ses.fetch.call(ses, url, {
           method: 'GET',
@@ -289,12 +287,11 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
         const pieces = Array.isArray(data && data[0]) ? data[0] : [];
         const merged = pieces.map((item) => (Array.isArray(item) ? String(item[0] || '') : '')).join('');
         if (merged) return merged;
-      } catch { /* try next transport */ } finally { clearTimeout(timer); }
+      } catch {  } finally { clearTimeout(timer); }
     }
     return '';
   }
 
-  // clients5 支持同一次请求带多个 q（返回顺序一致），批量翻比逐条快一个数量级
   async function translateBatch(texts, from, to) {
     const source = encodeURIComponent(from || 'auto');
     const target = encodeURIComponent(to || 'zh-CN');
@@ -304,7 +301,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
     if (!list.length) return [];
     for (const ses of list) {
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timer = setTimeout(() => { try { controller && controller.abort(); } catch { /* ignore */ } }, TRANSLATE_TIMEOUT_MS);
+      const timer = setTimeout(() => { try { controller && controller.abort(); } catch {  } }, TRANSLATE_TIMEOUT_MS);
       try {
         const response = await ses.fetch.call(ses, base + query, {
           method: 'GET',
@@ -317,9 +314,9 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
         if (!Array.isArray(data)) continue;
         const values = data.map((item) => (typeof item === 'string' ? item : (Array.isArray(item) ? String(item[0] || '') : '')));
         if (values.length === texts.length) return values;
-      } catch { /* try next transport */ } finally { clearTimeout(timer); }
+      } catch {  } finally { clearTimeout(timer); }
     }
-    // 批量失败就退到逐条（gtx 再试一次）
+
     const single = [];
     for (const text of texts) single.push(await requestTranslate(text, from, to));
     return single;
@@ -340,7 +337,6 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
     return new Promise((resolve) => { translateQueue.push({ texts, from, to, resolve }); pumpTranslate(); });
   }
 
-  // 片源没给字幕时：先从主播放列表里找 EXT-X-MEDIA 的 SUBTITLES 轨，再探同目录 subs/ 常见语言
   const PROBE_LANGS = ['zho', 'chi', 'zh', 'chs', 'cht', 'zho-Hans', 'eng', 'en', 'jpn', 'kor', 'spa', 'fre'];
 
   function resolveUri(ref, base) {
@@ -373,7 +369,6 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
     const stream = String(streamUrl || '');
     if (!/^https?:\/\//i.test(stream)) return { ok: false, tracks: [], error: '无播放地址' };
 
-    // 主播放列表里的字幕组
     try {
       const text = await fetchText(stream, 4200);
       const lines = text.split(/\r?\n/);
@@ -387,7 +382,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
         if (abs) push(abs, lang, 'manifest');
       }
       if (found.length) return { ok: true, tracks: found, from: 'manifest' };
-      // 变体播放列表：可能已经是 media playlist，字幕在同目录 subs/
+
       const baseDir = stream.replace(/[^/]*$/, '');
       const candidates = [];
       for (const lang of PROBE_LANGS) {
@@ -395,7 +390,7 @@ function createMovySubtitle({ log = () => {}, userDataDir = '', ipcMain = null, 
         candidates.push(baseDir + 'subs/' + lang + '.srt');
       }
       candidates.push(baseDir + 'eng.vtt', baseDir + 'zh.vtt', baseDir + 'subs/eng.sdh.vtt', baseDir + 'subs/zho.sdh.vtt');
-      // 并发探、命中 3 条即收工：常用语言位置排前面，早退就不用等后面的 404
+
       let cursor = 0;
       let stop = false;
       const worker = async () => {

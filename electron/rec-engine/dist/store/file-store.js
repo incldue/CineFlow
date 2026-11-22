@@ -1,7 +1,3 @@
-/**
- * 文件存储层: JSONL 事件日志 + JSON 物料库 —— 零原生依赖,
- * 可直接放进 Electron userData 目录。规模(万级用户/十万级事件)下全量驻内存。
- */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 export class FileStore {
@@ -16,7 +12,7 @@ export class FileStore {
         this.itemsPath = join(dataDir, 'items.json');
         this.onboardingPath = join(dataDir, 'onboarding.json');
     }
-    /** 全量加载事件(十万级 <100MB 内存, 换来 O(1) 在线读取) */
+
     loadEvents() {
         if (!existsSync(this.eventsPath))
             return [];
@@ -30,7 +26,7 @@ export class FileStore {
                 events.push(JSON.parse(s));
             }
             catch {
-                // 跳过半截写入的脏行(JSONL 追加天然容错)
+
             }
         }
         return events;
@@ -59,7 +55,7 @@ export class FileStore {
     saveOnboarding(map) {
         writeFileSync(this.onboardingPath, JSON.stringify(Object.fromEntries(map)), 'utf8');
     }
-    /** 工件目录(离线预计算结果) */
+
     artifactPath(name) {
         return join(this.dataDir, 'artifacts', name);
     }

@@ -1,13 +1,7 @@
-/**
- * ItemCF 离线计算与二进制工件存取
- * 相似度: 共现经 IUF 加权后按流行度平方根惩罚(缓解热门偏向), 每片保留 top-K 近邻
- */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { eventWeight } from './profile.js';
 import { readHeader, readTyped, writeHeader, typedBuffer } from '../store/binary.js';
-/**
- * 计算流行度(交互用户数 + 时间衰减分) —— ItemCF 惩罚项与热门兜底路共用
- */
+
 export function buildPopularity(events, now, tauHours) {
     const map = new Map();
     for (const e of events) {
@@ -25,18 +19,14 @@ export function buildPopularity(events, now, tauHours) {
     }
     return map;
 }
-/**
- * ItemCF 相似度离线计算(标准 ItemCF + IUF + 流行度惩罚):
- *   sim(i,j) = Σ_u [1/log(1+|I_u|)] / sqrt(pop_i * pop_j)
- * 每用户参与共现的条目数截断到 cap, 控制长尾用户计算量。
- */
+
 export function computeItemCF(events, itemIds, now, cfg) {
     const n = itemIds.length;
     const k = Math.min(cfg.itemcfNeighbors, Math.max(1, n - 1));
     const idxOf = new Map();
     for (let i = 0; i < n; i++)
         idxOf.set(itemIds[i], i);
-    // user -> {itemId: 聚合权重}
+
     const userItems = new Map();
     for (const e of events) {
         if (e.type === 'imp' || !idxOf.has(e.itemId))
@@ -51,14 +41,14 @@ export function computeItemCF(events, itemIds, now, cfg) {
         }
         m.set(e.itemId, Math.max(m.get(e.itemId) ?? 0, w));
     }
-    // 流行度(交互人数), 用于惩罚
+
     const pop = new Float64Array(n);
     for (const m of userItems.values())
         for (const id of m.keys())
             pop[idxOf.get(id)] += 1;
-    // 共现: co(i,j) += IUF(u)
-    const cap = 300; // 单用户截断, 防超长历史拖爆共现计算
-    const co = new Map(); // key = i*n + j (i<j)
+
+    const cap = 300;
+    const co = new Map();
     for (const m of userItems.values()) {
         if (m.size < 2)
             continue;
@@ -78,7 +68,7 @@ export function computeItemCF(events, itemIds, now, cfg) {
             }
         }
     }
-    // 惩罚 + 每 item 的 top-K 邻接表
+
     const byItem = new Map();
     for (const [key, c] of co) {
         const i = Math.floor(key / n);
@@ -104,8 +94,8 @@ export function computeItemCF(events, itemIds, now, cfg) {
     }
     return { n, k, nbIdx, nbSim, counts };
 }
-const MAGIC = 'ICF2'; // v2: writeHeader 统一头; 旧格式文件 magic 不匹配将自动重建
-/** 布局: [magic4][n4][k4][counts n×4][nbIdx n×k×4][nbSim n×k×4] */
+const MAGIC = 'ICF2';
+
 export function saveItemCF(a, path) {
     writeFileSync(path, Buffer.concat([writeHeader(MAGIC, [a.n, a.k]), typedBuffer(a.counts), typedBuffer(a.nbIdx), typedBuffer(a.nbSim)]));
 }

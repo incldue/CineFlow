@@ -1,20 +1,17 @@
 'use strict';
 
-
 const { filterResources } = require('./resource-type-filter.cjs');
 const cacheLayer = require('./cache-layer.cjs');
 const telemetry = require('./telemetry.cjs');
 
-/* ---- 预算/并发参数 ---- */
 const PER_SOURCE_BUDGET_MS = 5000;
 const PER_REQUEST_TIMEOUT_MS = 6500;
 const SOURCE_POOL = 8;
 const TITLE_CONCURRENCY = 2;
 const FIRST_DELIVERY_WAIT_MS = 1600;
-const RELEASE_DEADLINE_MS = 2500;   
+const RELEASE_DEADLINE_MS = 2500;
 const FULL_WAIT_MS = 20000;
 
-/* ---- 缓存参数 ---- */
 const POSITIVE_TTL_MS = 4 * 60 * 1000;
 const NEGATIVE_TTL_MS = 90 * 1000;
 const AGG_CACHE_MAX = 24;
@@ -26,7 +23,6 @@ const PLAYSOURCE_TTL_MS = 10 * 60 * 1000;
 const PLAYSOURCE_CACHE_MAX = 60;
 const PLAYSOURCE_BUDGET_MS = 5000;
 
-/* ---- 与基线一致的正则（main.cjs L38-40） ---- */
 const PLAYABLE_MEDIA_EXTENSION_RE = /\.(?:m3u8|mpd|mp4|m4v|webm|ogv|ogg|flv|ts|m2ts|mts|mov|mkv|avi|mpeg|mpg|3gp|f4v)(?:$|[?#])/i;
 const NATIVE_MEDIA_EXTENSION_RE = /\.(?:mp4|m4v|webm|ogv|ogg|mov|mkv|avi|mpeg|mpg|3gp|f4v)(?:$|[?#])/i;
 const MEDIA_PAGE_HINT_RE = /\/(?:share|play|player|embed|vodplay|video)\//i;
@@ -39,8 +35,18 @@ const state = {
   originalFindFiltered: null,
   originalGetSettings: null,
   originalTestSource: null,
-  aggInflight: new Map()
+  aggInflight: new Map(),
+  remoteSearch: null,
+  remoteTest: null,
+  remoteSources: null
 };
+
+function setRemoteBridge(bridge = {}) {
+  state.remoteSearch = typeof bridge.search === 'function' ? bridge.search : null;
+  state.remoteTest = typeof bridge.test === 'function' ? bridge.test : null;
+  state.remoteSources = typeof bridge.sources === 'function' ? bridge.sources : null;
+  return true;
+}
 
 const engineResponseCache = cacheLayer.createCache({ namespace: 'engine.response', ttlMs: RESPONSE_TTL_MS, max: RESPONSE_MAX });
 const engineAggCache = cacheLayer.createCache({ namespace: 'engine.agg', max: AGG_CACHE_MAX });
@@ -48,7 +54,7 @@ const engineTestCache = cacheLayer.createCache({ namespace: 'engine.test', ttlMs
 const enginePlaySourceCache = cacheLayer.createCache({ namespace: 'engine.playSource', ttlMs: PLAYSOURCE_TTL_MS, max: PLAYSOURCE_CACHE_MAX });
 
 const engineLog = (...args) => {
-  try { console.log('[CineFlow:Engine]', ...args); } catch { /* ignore */ }
+  try { console.log('[CineFlow:Engine]', ...args); } catch {  }
 };
 
 function inferMediaKind(value = '', contentType = '') {
@@ -245,8 +251,6 @@ function compactResourceItem(source, item, payload) {
   };
 }
 
-/* ============ 引擎自己的请求层（带响应缓存） ============ */
-
 function getCachedResponse(cacheKey) {
   const hit = engineResponseCache.get(cacheKey);
   return hit ? hit.value : null;
@@ -287,8 +291,6 @@ async function engineFetchJson(source, params = {}, timeoutMs = PER_REQUEST_TIME
   }
 }
 
-/* ============ 单源搜索：标题 2 路并行、按序消费、预算内砍尾 ============ */
-
 async function hydrateDetail(source, item, deadline) {
   if (parsePlayGroups(item).length || !item?.vod_id) return item;
   const remaining = () => Math.max(600, Math.min(PER_REQUEST_TIMEOUT_MS, deadline - Date.now()));
@@ -297,7 +299,7 @@ async function hydrateDetail(source, item, deadline) {
       const detail = await engineFetchJson(source, { ac, ids: item.vod_id }, remaining());
       const detailItem = Array.isArray(detail?.list) ? detail.list[0] : null;
       if (detailItem) return detailItem;
-    } catch { /* 另一路探测兜底 */ }
+    } catch {  }
     return null;
   });
   try {
@@ -306,7 +308,7 @@ async function hydrateDetail(source, item, deadline) {
       throw new Error('empty');
     })));
     if (detailItem) return { ...item, ...detailItem };
-  } catch { /* 两路都失败或为空 */ }
+  } catch {  }
   return item;
 }
 
@@ -327,6 +329,14 @@ async function processTitle(source, payload, titles, releaseYear, deadline, data
 }
 
 async function searchSource(source, payload, deadline) {
+  if (state.remoteSearch) {
+    try {
+      const bridged = await state.remoteSearch(source, payload, deadline);
+      if (bridged !== undefined) return bridged;
+    } catch (error) {
+      engineLog('远程库查询异常，回落 CMS:', error && error.message);
+    }
+  }
   const titles = uniqueResourceQueries(payload);
   if (!titles.length) return null;
   const releaseYear = releaseYearOf(payload);
@@ -363,8 +373,6 @@ async function searchSource(source, payload, deadline) {
   return null;
 }
 
-/* ============ 聚合与渐进交付 ============ */
-
 function cacheKeyOf(revision, payload = {}) {
   return [
     Number(revision || 0),
@@ -377,8 +385,26 @@ function cacheKeyOf(revision, payload = {}) {
 
 function selectSources(settings) {
   const mode = String(settings?.mode || 'stable');
-  return (Array.isArray(settings?.sources) ? settings.sources : [])
+  const list = (Array.isArray(settings?.sources) ? settings.sources : [])
     .filter((source) => source && source.enabled !== false && Array.isArray(source.modes) && source.modes.includes(mode));
+  if (typeof state.remoteSources === 'function') {
+    try {
+      const extra = state.remoteSources(mode) || [];
+      const seen = new Set(list.map((source) => String(source && source.api || '')));
+      const ahead = [];
+      for (const item of extra) {
+        const api = String(item && item.api || '');
+        if (!api || seen.has(api)) continue;
+        seen.add(api);
+        ahead.push(item);
+      }
+
+      return ahead.concat(list);
+    } catch (error) {
+      engineLog('远程库注入失败，按原有源继续:', error && error.message);
+    }
+  }
+  return list;
 }
 
 function wakeWaiters(agg) {
@@ -387,8 +413,7 @@ function wakeWaiters(agg) {
 }
 
 function pumpDelivery(agg) {
-  // 前缀模式（默认）：按源优先级顺序交付，只越过已完成的前缀，保证自定义源优先露出
-  // 释放模式：高优先源迟迟未出结果时，改为按完成顺序放行全部已完成结果
+
   if (!agg.firstDeliveredAt && agg.delivered.length) agg.firstDeliveredAt = Date.now();
   if (agg.released) {
     const ready = [];
@@ -454,7 +479,7 @@ function startAggregation(key, payload, settings) {
       agg.done = true;
       clearTimeout(agg.releaseTimer);
       aggDone({ total: agg.total, title: String(payload.title || '').slice(0, 40), hits: agg.slots.filter(Boolean).length, firstDeliveryMs: agg.firstDeliveredAt ? agg.firstDeliveredAt - agg.startedAt : null });
-      // 收尾：把仍卡在 undefined 的槽位补成 null，再统一 pump 一轮
+
       for (let i = 0; i < agg.slots.length; i += 1) {
         if (agg.slots[i] === undefined) agg.slots[i] = null;
       }
@@ -488,8 +513,7 @@ function finalizeCache(key, agg) {
   };
   agg.dropped = verdict.dropped;
   engineAggCache.set(key, entry, verdict.resources.length ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS);
-  // 聚合即预热：对前 4 条结果的播放地址发 Range 预热（DNS/TLS/防盗链握手前置），
-  // 用户点击时连接已热（毫秒级加速的实质）；fire-and-forget，失败静默。
+
   warmTopResources(verdict.resources.slice(0, 4));
 }
 
@@ -510,8 +534,8 @@ function warmTopResources(resources) {
           headers: { range: 'bytes=0-127', 'user-agent': UA },
           signal: controller.signal
         });
-        // 防盗链：把播放主机登记进主机头注册表（Referer=播放地址自身 origin）
-        try { require('./source-compat.cjs')._internals.registerMediaHost(url, new URL(url).origin); } catch { /* ignore */ }
+
+        try { require('./source-compat.cjs')._internals.registerMediaHost(url, new URL(url).origin); } catch {  }
         await response.arrayBuffer().catch(() => {});
         telemetry.count(response.ok ? 'warm.ok' : 'warm.fail');
       } catch {
@@ -558,7 +582,7 @@ function emptyResult(settings) {
 }
 
 function cachedResult(settings, entry) {
-  const cached = entry;   // 统一缓存层直存 payload（无 expiresAt 包装）
+  const cached = entry;
   return {
     ...settings,
     checked: cached.total,
@@ -578,8 +602,6 @@ async function loadSettings() {
   if (typeof handler !== 'function') return null;
   return handler({});
 }
-
-/* ============ handler 包装 ============ */
 
 async function findMovieFilteredHandler(event, payload = {}, options = {}) {
   const settings = await loadSettings();
@@ -602,7 +624,7 @@ async function findMovieFilteredHandler(event, payload = {}, options = {}) {
   const limit = Number(options?.limit || 0);
 
   if (!limit) {
-    // 无分页参数：等待聚合完成一次性返回（保留基线"全量"语义）
+
     await waitOn(agg, () => agg.done, FULL_WAIT_MS);
     const resources = agg.delivered.slice();
     return {
@@ -619,7 +641,7 @@ async function findMovieFilteredHandler(event, payload = {}, options = {}) {
   }
 
   if (cursor === 0) {
-    // 首轮：等到首批结果 / 超时 / 聚合完成，尽快回显
+
     await waitOn(agg, () => agg.delivered.length >= Math.min(limit, 3) || agg.done, FIRST_DELIVERY_WAIT_MS);
   }
   pumpDelivery(agg);
@@ -651,6 +673,18 @@ async function testSourceHandler(event, payload = {}) {
   );
   if (!source) return { ok: false, error: '未找到该播放源' };
 
+  if (state.remoteTest) {
+    try {
+      const remoteResult = await state.remoteTest(source);
+      if (remoteResult !== undefined) {
+        engineTestCache.set(cacheId, remoteResult);
+        return remoteResult;
+      }
+    } catch (error) {
+      engineLog('远程库测速异常，回落 CMS:', error && error.message);
+    }
+  }
+
   let url;
   try { url = new URL(source.api); } catch { return { ok: false, error: '源地址不合法' }; }
   url.searchParams.set('ac', 'list');
@@ -665,7 +699,7 @@ async function testSourceHandler(event, payload = {}) {
       cache: 'no-store',
       headers: { accept: 'application/json, text/plain, */*', 'user-agent': UA }
     });
-    // TTFB 计时：到响应头即算可达（基线等全量下载完，大站几百 KB 拖慢测速）
+
     const elapsedMs = Date.now() - startedAt;
     let text = '';
     try {
@@ -694,8 +728,6 @@ async function testSourceHandler(event, payload = {}) {
   }
 }
 
-/* ============ 开机暖连接（源主机 DNS/TLS/代理链路，避免首轮搜索吃冷启动） ============ */
-
 function scheduleSourceWarmup() {
   const { app } = require('electron');
   const ready = app && app.isReady() ? Promise.resolve() : (app ? app.whenReady() : Promise.resolve());
@@ -721,18 +753,12 @@ function scheduleSourceWarmup() {
             cache: 'no-store',
             signal: controller.signal
           });
-        } catch { /* 暖连接失败不影响功能 */ }
+        } catch {  }
         finally { clearTimeout(timer); }
       }));
-    } catch { /* ignore */ }
+    } catch {  }
   }
 }
-
-/* ============ 豆瓣兜底播放源包装（仍只查内置如意源单源 + 类型双向择优） ============
- * 豆瓣兜底模式维持"如意资源"单源形态不变；这里只修两件事：
- *   1. 线路名清洗后返回（与 TMDB 资源卡一致）
- *   2. 错标 mediaType 的剧/综艺 0 命中时自动 movie↔tv 翻转重查一次（修复"片源无法命中"）
- * 异常回落原 handler（内置如意单源原逻辑）。 */
 
 function flipMediaType(mediaType) {
   return mediaType === 'tv' ? 'movie' : 'tv';
@@ -772,7 +798,7 @@ async function playSourceHandler(event, payload = {}) {
   }
 
   if (!resource) {
-    // 两种类型都空：交回原 handler（它有自己的 10min 缓存与 disabled 语义）
+
     return state.originalPlaySource(event, payload);
   }
 
@@ -784,8 +810,6 @@ async function playSourceHandler(event, payload = {}) {
   enginePlaySourceCache.set(cacheKey, result);
   return result;
 }
-
-/* ============ 安装入口 ============ */
 
 function installSourceEngine({ ipcMain, session }) {
   if (state.installed || !ipcMain) return false;
@@ -804,9 +828,6 @@ function installSourceEngine({ ipcMain, session }) {
   state.originalFindFiltered = originalFindFiltered;
   state.originalGetSettings = originalGetSettings;
   state.originalTestSource = typeof originalTestSource === 'function' ? originalTestSource : null;
-
-  // 注：douban:playSource 翻转命中包装已按「完全对齐 3.4.4」要求移除（用户点名单项）。
-  // 豆瓣兜底播放块现在 100% 走基线 ruyiFallbackResource 原始实现。
 
   handlers.set('resources:findMovieFiltered', async (event, payload, options) => {
     try {
@@ -829,12 +850,13 @@ function installSourceEngine({ ipcMain, session }) {
   }
 
   engineLog('已安装（全源并发聚合 + 渐进分批 + 每源 5s 预算 + TTFB 测速）');
-  try { scheduleSourceWarmup(); } catch { /* ignore */ }
+  try { scheduleSourceWarmup(); } catch {  }
   return true;
 }
 
 module.exports = {
   installSourceEngine,
+  setRemoteBridge,
   _internals: {
     cacheKeyOf,
     selectSources,

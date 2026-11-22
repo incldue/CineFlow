@@ -1,23 +1,26 @@
 'use strict';
 
-
 const INJECT_CSS = [
+
   'html.cf-sw-rast *,',
   'html.cf-sw-rast *::before,',
   'html.cf-sw-rast *::after {',
   '  animation-iteration-count: 1 !important;',
   '}',
+
   'html *,',
   'html *::before,',
   'html *::after {',
   '  backdrop-filter: none !important;',
   '  -webkit-backdrop-filter: none !important;',
   '}',
+
   'html *,',
   'html *::before,',
   'html *::after {',
   '  box-shadow: none !important;',
   '}',
+
   'html .titlebar { box-shadow: 0 2px 12px rgba(0, 0, 0, 0.40) !important; }',
   'html .island,',
   'html .island-shell { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.44) !important; }',
@@ -25,6 +28,7 @@ const INJECT_CSS = [
   'html .player-shell,',
   'html .player-modal .player-shell { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.56) !important; }',
   'html .status-banner { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.34) !important; }',
+
   'html .movie-card:focus-visible,',
   'html .movie-card.is-focused,',
   'html .movie-card:hover,',
@@ -35,6 +39,7 @@ const INJECT_CSS = [
   'html .library-item:hover {',
   '  box-shadow: 0 0 0 2px rgba(216, 184, 116, 0.85) !important;',
   '}',
+
   'html .movie-card,',
   'html .movie-card *,',
   'html .poster-frame,',
@@ -50,12 +55,14 @@ const INJECT_CSS = [
   'html .island * {',
   '  transition-duration: 70ms !important;',
   '}',
+
   'html .movie-card,',
   'html .movie-rail .movie-card,',
   'html .poster-frame {',
   '  --cf-fx: 0 !important;',
   '  --cf-fy: 0 !important;',
   '}',
+
   'html .ambient,',
   'html .ambient-a,',
   'html .ambient-b {',
@@ -67,9 +74,11 @@ const INJECT_CSS = [
   'html .ambient-b {',
   '  background: radial-gradient(circle at 50% 50%, #b99a60 0%, rgba(185,154,96,0.62) 34%, rgba(185,154,96,0.16) 62%, rgba(185,154,96,0) 78%) !important;',
   '}',
+
   'html .hero-backdrop {',
   '  filter: saturate(1.08) brightness(0.82) !important;',
   '}',
+
   'html *,',
   'html *::before,',
   'html *::after {',
@@ -125,6 +134,7 @@ function createRasterTuner({ log = () => {} } = {}) {
       done.add(win);
       const wc = win.webContents;
       let software = null;
+
 function writeSoftwareFlag(isSoftware) {
   try {
     const nodePath = require('node:path');
@@ -133,9 +143,11 @@ function writeSoftwareFlag(isSoftware) {
     const dir = nodePath.join(baseDir, 'CineFlow');
     nodeFs.mkdirSync(dir, { recursive: true });
     nodeFs.writeFileSync(nodePath.join(dir, 'software-raster.flag'), isSoftware ? '1' : '0', 'utf8');
-  } catch { /* 落盘失败不影响运行 */ }
-}   
+  } catch {  }
+}
+
       const UNCONDITIONAL_CSS = INJECT_CSS.replace(/html\.cf-sw-rast\s+/g, '').replace(/html\.cf-sw-rast/g, 'html');
+
       const STYLE_ID = 'cf-raster-degrade';
       const CSS_JSON = JSON.stringify(UNCONDITIONAL_CSS);
       const INJECT_JS = "(function(){try{var id='" + STYLE_ID + "';var old=document.getElementById(id);if(old)old.remove();"
@@ -148,8 +160,9 @@ function writeSoftwareFlag(isSoftware) {
           wc.executeJavaScript(INJECT_JS, true).then((r) => {
             if (r === -1) log('降载 CSS 注入异常');
           }).catch(() => {});
-        } catch { /* ignore */ }
+        } catch {  }
       };
+
       const detect = () => wc.executeJavaScript(DETECT, true)
         .then((probe) => {
           if (!probe) return null;
@@ -169,9 +182,10 @@ function writeSoftwareFlag(isSoftware) {
       const apply = () => {
         if (software === false) return;
         if (software === true) { inject(); return; }
-        // 探测还没回来：等它，回来后立刻补注入
+
         pending.then((sw) => { if (sw) inject(); }).catch(() => {});
       };
+
       const STILL = "(function(){try{"
         + "if(document.querySelector('.splash-screen,.splash'))return 0;"
         + "var n=0;document.getAnimations().forEach(function(a){try{"
@@ -186,7 +200,7 @@ function writeSoftwareFlag(isSoftware) {
       const startStill = () => {
         if (stillTimer) return;
         stillTimer = setInterval(() => {
-          try { wc.executeJavaScript(STILL, true).catch(() => {}); } catch { /* ignore */ }
+          try { wc.executeJavaScript(STILL, true).catch(() => {}); } catch {  }
         }, 900);
         if (typeof stillTimer.unref === 'function') stillTimer.unref();
       };

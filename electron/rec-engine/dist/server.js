@@ -46,7 +46,7 @@ const CORS = {
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
 };
-/** Fastify 版服务 */
+
 export async function startFastify(engine, port) {
     const fastify = (await import('fastify')).default;
     const h = createHandlers(engine);
@@ -67,7 +67,7 @@ export async function startFastify(engine, port) {
     await app.listen({ port, host: '127.0.0.1' });
     return app;
 }
-/** node:http 兜底版服务(接口语义一致) */
+
 export async function startHttpFallback(engine, port) {
     const http = await import('node:http');
     const h = createHandlers(engine);

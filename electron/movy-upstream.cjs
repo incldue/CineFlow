@@ -5,11 +5,14 @@ function upstreamModule(e) {
 }
 
 const PROVIDER_ORDER = ['Miami','Boise','Nashville','Chicago','Vegas','Reno','Oakland','Seattle','Phoenix','Atlanta','Portland','Austin','Dallas','Munich','Berlin','Paris','Delhi','Cancun'];
+
 function createUpstream({ ofetch } = {}) {
   const stubs = {
+
     52543: { Provider: new Proxy({}, { get: (_t, key) => String(key) }) },
     10686: { MediaType: { MOVIE: 'movie', TV: 'tv', ANIME: 'anime' } },
     19622: { ofetch },
+
     39111: { STREAM_API_URL: 'https://api.wecollege.net' },
   };
   let exported = null;
@@ -20,7 +23,7 @@ function createUpstream({ ofetch } = {}) {
   };
   upstreamModule(shim);
   const providers = Array.isArray(exported && exported[2]) ? exported[2] : [];
-  // 按官方顺序排好，未知的新服务器追加到末尾（协议升级时不丢）
+
   const ranked = PROVIDER_ORDER
     .map((name) => providers.find((item) => item && item.name === name))
     .filter(Boolean);

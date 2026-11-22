@@ -1,6 +1,5 @@
 'use strict';
 
-
 const telemetry = require('./telemetry.cjs');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
@@ -8,7 +7,7 @@ const FETCH_TIMEOUT_MS = 8000;
 const MEDIA_RE = /https?(?::|%3A)(?:\/|%2F){2}[^\s"'<>()\\]+?\.(?:m3u8|mp4|mkv|avi|flv|mpd)(?:\?[^\s"'<>()\\]*)?/i;
 const MEDIA_RE_G = new RegExp(MEDIA_RE.source, 'ig');
 
-let registerMediaHost = null;   // 由 source-compat 注入
+let registerMediaHost = null;
 let getSession = null;
 
 function injectDeps({ onMediaHost, sessionGetter }) {
@@ -33,7 +32,7 @@ function extractMediaUrls(text) {
     for (const match of haystack.matchAll(new RegExp(MEDIA_RE.source, 'ig'))) {
       found.add(match[0].replace(/\\$/, ''));
     }
-    // 内嵌 JSON 提取
+
     for (const jsonMatch of haystack.matchAll(/player_data\s*=\s*(\{[\s\S]{10,4000}?\});|__NEXT_DATA__\s*=\s*(\{[\s\S]{10,8000}?\});/g)) {
       try {
         const parsed = JSON.parse(jsonMatch[1] || jsonMatch[2]);
@@ -48,15 +47,15 @@ function extractMediaUrls(text) {
             }
           }
         }
-      } catch { /* JSON 损坏忽略 */ }
+      } catch {  }
     }
-    // escape 混淆解包
+
     for (const escMatch of haystack.matchAll(/unescape\(\s*(['"])([\s\S]{40,2000}?)\1\s*\)/g)) {
       try {
         const decoded = decodeURIComponent(escMatch[2]);
         const hit = decoded.match(MEDIA_RE);
         if (hit) found.add(hit[0]);
-      } catch { /* ignore */ }
+      } catch {  }
     }
   }
   return [...found].filter((url) => /^https?:\/\//i.test(url));
@@ -90,7 +89,7 @@ async function resolveV2(pageUrl, depth = 0) {
   if (!html) return null;
   let urls = extractMediaUrls(html);
   if (!urls.length && depth < 1) {
-    // 一级 iframe 跟随
+
     const iframeSrc = (/iframe[^>]+src=["']([^"']+)["']/i.exec(html) || [])[1];
     if (iframeSrc && /^https?:\/\//i.test(iframeSrc)) {
       urls = extractMediaUrls((await fetchPage(iframeSrc, `${new URL(pageUrl).origin}/`)) || '');
@@ -107,15 +106,15 @@ function installResolverV2(ipcMain, { getPageTextFallback } = {}) {
     handlers.set('player:resolveMediaUrl', async (event, url) => {
       const baseline = await original(event, url).catch(() => null);
       if (baseline) return baseline;
-      // 基线失败 → v2 多策略提取
+
       try {
         const resolved = await resolveV2(String(url || ''));
         telemetry.record('resolver.v2', { url: String(url || '').slice(0, 80), hit: Boolean(resolved) });
         if (resolved) {
           try {
-            // 防盗链：解析出的播放主机用「分享页 origin」作 Referer（CDN 认的是站点 Referer）
+
             registerMediaHost?.(resolved, new URL(String(url)).origin);
-          } catch { /* 登记失败不影响解析结果 */ }
+          } catch {  }
           return resolved;
         }
       } catch (error) {

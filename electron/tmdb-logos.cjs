@@ -11,7 +11,7 @@ function loadNet() {
   try {
     const electron = require('electron');
     if (electron && electron.net && typeof electron.net.fetch === 'function') return electron.net.fetch.bind(electron.net);
-  } catch { /* 测试环境 */ }
+  } catch {  }
   return typeof fetch === 'function' ? fetch : null;
 }
 
@@ -87,7 +87,7 @@ function createTmdbLogos({ log = () => {}, userDataDir = '', ipcMain = null, cha
           memory.set(key, parsed);
           return parsed.data;
         }
-      } catch { /* 缓存损坏即重取 */ }
+      } catch {  }
     }
 
     const credential = readCredential(userDataDir);
@@ -124,14 +124,14 @@ function createTmdbLogos({ log = () => {}, userDataDir = '', ipcMain = null, cha
         fsp.writeFileSync(tmp, JSON.stringify(entry));
         fsp.renameSync(tmp, file);
       }
-    } catch { /* 缓存写失败不影响首屏 */ }
+    } catch {  }
 
     return result;
   }
 
   function registerIpc() {
     if (!ipcMain || typeof ipcMain.handle !== 'function') return false;
-    try { ipcMain.removeHandler(channel); } catch { /* 未注册 */ }
+    try { ipcMain.removeHandler(channel); } catch {  }
     ipcMain.handle(channel, async (_event, payload = {}) => {
       try { return await fetchLogos(payload); } catch (error) {
         return { ok: false, error: String((error && error.message) || error) };
